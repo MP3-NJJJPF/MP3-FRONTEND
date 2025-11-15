@@ -1,27 +1,3 @@
-// import { loginWithGoogle } from "../services/auth.service";
-// import { apiClient } from "../fetch/fetchClient";
-
-// const Login = () => {
-//   const handleGoogleLogin = async () => {
-//     try {
-//       const { idToken, user } = await loginWithGoogle();
-
-//       const data = await apiClient.post("/api/v1/users/google", {}, idToken);
-//       console.log("Authenticated:", data, user);
-//     } catch (error) {
-//       console.error("Error:", error);
-//     }
-//   };
-
-//   return (
-//     <button onClick={handleGoogleLogin}>
-//       Login con Google
-//     </button>
-//   );
-// };
-
-// export default Login;
-
 import { useNavigate } from "react-router-dom";
 import { loginWithGoogle } from "../services/auth.service";
 import { apiClient } from "../fetch/fetchClient";
