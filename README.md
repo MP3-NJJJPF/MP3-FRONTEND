@@ -1,73 +1,148 @@
-# React + TypeScript + Vite
+# TalkHub - Video Conferencing Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Aplicación web de videoconferencias construida con React, TypeScript, Vite, Tailwind CSS y Firebase.
 
-Currently, two official plugins are available:
+## 🚀 Tecnologías
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **React 19** - Biblioteca UI
+- **TypeScript** - Tipado estático
+- **Vite** - Build tool y dev server
+- **Tailwind CSS v4** - Framework CSS
+- **Firebase** - Autenticación
+- **Zustand** - Gestión de estado
+- **React Router** - Enrutamiento
 
-## React Compiler
+## 📋 Requisitos Previos
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- Node.js 18+ 
+- npm o yarn
+- Cuenta de Firebase
+- Backend API corriendo (ver repositorio del backend)
 
-## Expanding the ESLint configuration
+## ⚙️ Configuración
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### 1. Clonar el repositorio
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+git clone <repository-url>
+cd MP3-FRONTEND
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### 2. Instalar dependencias
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
 ```
+
+### 3. Configurar variables de entorno
+
+Copia el archivo `.env.example` a `.env`:
+
+```bash
+cp .env.example .env
+```
+
+Luego edita `.env` con tus credenciales de Firebase:
+
+```env
+# Firebase Configuration
+VITE_FIREBASE_API_KEY=tu_api_key_aqui
+VITE_FIREBASE_AUTH_DOMAIN=tu_proyecto.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=tu_proyecto_id
+VITE_FIREBASE_STORAGE_BUCKET=tu_proyecto.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=tu_sender_id
+VITE_FIREBASE_APP_ID=tu_app_id
+VITE_FIREBASE_MEASUREMENT_ID=tu_measurement_id
+
+# Backend API URL
+VITE_BACKEND_URL=http://localhost:3000
+```
+
+**⚠️ IMPORTANTE**: Nunca subas el archivo `.env` al repositorio. Ya está incluido en `.gitignore`.
+
+### 4. Obtener credenciales de Firebase
+
+1. Ve a [Firebase Console](https://console.firebase.google.com/)
+2. Crea un nuevo proyecto o selecciona uno existente
+3. Ve a "Project Settings" (⚙️)
+4. En la sección "Your apps", selecciona o crea una app web
+5. Copia las credenciales de configuración al archivo `.env`
+
+### 5. Configurar autenticación en Firebase
+
+1. En Firebase Console, ve a "Authentication"
+2. Habilita los métodos de autenticación:
+   - Email/Password
+   - Google
+   - GitHub (opcional)
+
+## 🏃‍♂️ Ejecutar en Desarrollo
+
+```bash
+npm run dev
+```
+
+La aplicación estará disponible en `http://localhost:5173`
+
+## 🏗️ Build para Producción
+
+```bash
+npm run build
+```
+
+Los archivos optimizados se generarán en la carpeta `dist/`
+
+## 📦 Despliegue en Vercel
+
+El proyecto incluye configuración para Vercel (`vercel.json`):
+
+```bash
+# Instalar Vercel CLI
+npm i -g vercel
+
+# Desplegar
+vercel
+```
+
+O conecta el repositorio directamente en [vercel.com](https://vercel.com)
+
+**Recuerda configurar las variables de entorno en Vercel:**
+- Settings → Environment Variables
+- Agrega todas las variables del archivo `.env`
+
+## 📁 Estructura del Proyecto
+
+```
+src/
+├── components/       # Componentes reutilizables
+├── pages/           # Páginas/vistas
+├── stores/          # Zustand stores (estado global)
+├── services/        # Servicios (auth, API)
+├── lib/             # Configuraciones (Firebase)
+├── fetch/           # Cliente HTTP
+├── types/           # Tipos TypeScript
+└── assets/          # Imágenes, íconos, etc.
+```
+
+## 🔐 Rutas Protegidas
+
+Las siguientes rutas requieren autenticación:
+- `/dashboard` - Panel principal
+- `/profile` - Perfil de usuario
+- `/call/:roomId` - Sala de videollamada
+
+## 🛠️ Scripts Disponibles
+
+- `npm run dev` - Servidor de desarrollo
+- `npm run build` - Build de producción
+- `npm run preview` - Preview del build
+- `npm run lint` - Linter (ESLint)
+
+## 📄 Licencia
+
+Este proyecto es parte de un proyecto universitario.
+
+---
+
+Desarrollado con ❤️ por el equipo MP3-NJJJPF
+
