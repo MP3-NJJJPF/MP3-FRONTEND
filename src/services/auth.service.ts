@@ -13,7 +13,7 @@ import { apiClient } from "../fetch/fetchClient";
 /**
  * Register a new user with email and password
  */
-export const registerWithEmail = async (email: string, password: string, displayName: string, age: number) => {
+export const registerWithEmail = async (email: string, password: string, _displayName: string, age: number) => {
   const userCredential = await createUserWithEmailAndPassword(auth, email, password);
   const user = userCredential.user;
   const idToken = await user.getIdToken();
@@ -110,7 +110,7 @@ export const deleteAccount = async () => {
   const idToken = await user.getIdToken();
 
   // Delete user data from backend
-  await apiClient.delete(`/auth/user/${user.uid}`, idToken);
+  await apiClient.delete(`/auth/user/${user.uid}`, null, idToken);
 
   // Delete Firebase user
   await firebaseDeleteUser(user);

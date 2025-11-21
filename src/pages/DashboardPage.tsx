@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Sidebar } from '../components/Sidebar';
+import { useAuthStore } from '../stores/useAuthStore';
 
 /**
  * DashboardPage Component
@@ -10,7 +11,16 @@ import { Sidebar } from '../components/Sidebar';
  */
 export const DashboardPage: React.FC = () => {
   const [meetingCode, setMeetingCode] = useState('');
-  const userName = 'Jean Pierre'; // TODO: Get from auth context
+  const { user } = useAuthStore();
+  
+  // Get first two words from displayName
+  const getFirstTwoWords = (name: string | null | undefined) => {
+    if (!name) return 'Usuario';
+    const words = name.trim().split(/\s+/);
+    return words.slice(0, 2).join(' ');
+  };
+  
+  const userName = getFirstTwoWords(user?.displayName);
   const navigate = useNavigate();
 
   const handleCreateMeeting = () => {

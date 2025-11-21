@@ -3,6 +3,7 @@ import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { auth } from '../lib/firebase.config';
 import * as authService from '../services/auth.service';
 import { apiClient } from '../fetch/fetchClient';
+import type { LoginResponse, UserInfoResponse, OAuthResponse } from '../types/api.types';
 
 /**
  * User interface with application-specific data
@@ -86,7 +87,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
                 email: fbUser.email,
                 uid: fbUser.uid,
                 displayName: fbUser.displayName || fbUser.email?.split('@')[0],
-              }, idToken);
+              }, idToken) as unknown as LoginResponse & { age?: number };
               
               const user: User = {
                 uid: fbUser.uid,
@@ -97,7 +98,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
               };
 
               set({ user, idToken, error: null });
-            } catch (error: any) {
+            } catch {
               // User not found in backend, might need to complete profile
               console.log('User not found in backend during auth observer');
               
@@ -111,9 +112,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
               set({ user, idToken, error: null });
             }
-          } catch (error: any) {
+          } catch (error: unknown) {
             console.error('Auth observer error:', error);
-            set({ error: error.message });
+            const errorMessage = error instanceof Error ? error.message : 'Authentication error';
+            set({ error: errorMessage });
           }
         } else {
           set({ 
@@ -139,22 +141,28 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   loginWithEmail: async (email: string, password: string) => {
     set({ isLoading: true, error: null });
     try {
-    //   const { user, idToken } = await authService.loginWithEmail(email, password);
+      // Authenticate with backend
+      const loginResponse = await apiClient.post(`/api/v1/users/login`, {email, password}) as unknown as LoginResponse;
       
-      // Fetch user data from backend
-      const userData = await apiClient.post(`/api/v1/users/login`, {email, password});
+      // Get the token from login response
+      const idToken = loginResponse.token;
+      
+      // Fetch complete user data using /me endpoint
+      const userData = await apiClient.get(`/api/v1/users/me`, idToken) as unknown as UserInfoResponse;
+      const userInfo = userData.user;
       
       const appUser: User = {
-        uid: userData.id,
-        email: userData.email,
-        displayName: userData.name,
-        photoURL: '',
-        age: userData.age,
+        uid: loginResponse.id || userInfo.id || email,
+        email: userInfo.email,
+        displayName: userInfo.firstName ? `${userInfo.firstName} ${userInfo.lastName || ''}`.trim() : userInfo.email?.split('@')[0] || '',
+        photoURL: userInfo.photoURL || '',
+        age: userInfo.age,
       };
 
-      set({ user: appUser, isLoading: false });
-    } catch (error: any) {
-      set({ error: error.message, isLoading: false });
+      set({ user: appUser, idToken, isLoading: false });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Login failed';
+      set({ error: errorMessage, isLoading: false });
       throw error;
     }
   },
@@ -177,8 +185,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
       // Successfully registered - user should now login
       set({ isLoading: false });
-    } catch (error: any) {
-      set({ error: error.message, isLoading: false });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Registration failed';
+      set({ error: errorMessage, isLoading: false });
       throw error;
     }
   },
@@ -201,7 +210,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           email: user.email,
           uid: user.uid,
           displayName: user.displayName || user.email?.split('@')[0],
-        }, idToken);
+        }, idToken) as unknown as OAuthResponse;
         console.log('Backend response:', response);
         
         // Check if user needs to complete profile
@@ -219,23 +228,27 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           return;
         }
         
-        // User exists in backend with complete profile, log them in
+        // User exists in backend with complete profile, fetch full user data
+        const userData = await apiClient.get(`/api/v1/users/me`, idToken) as unknown as UserInfoResponse;
+        const userInfo = userData.user;
+        
         const appUser: User = {
           uid: user.uid,
-          email: user.email,
-          displayName: user.displayName,
-          photoURL: user.photoURL,
-          age: response.age,
+          email: userInfo.email,
+          displayName: userInfo.firstName ? `${userInfo.firstName} ${userInfo.lastName || ''}`.trim() : user.displayName || '',
+          photoURL: user.photoURL || userInfo.photoURL || '',
+          age: userInfo.age,
         };
         
         // console.log('User found in backend, logging in:', appUser);
         set({ user: appUser, idToken, isLoading: false });
-      } catch (error: any) {
+      } catch (error: unknown) {
         // Backend error - could be 404 (not found), 500 (server error), or 429 (rate limit)
         // console.log('Backend error:', error);
         
         // If it's a rate limit error (429), show message and don't redirect
-        if (error.message && error.message.includes('429')) {
+        const errorMessage = error instanceof Error ? error.message : '';
+        if (errorMessage.includes('429')) {
           set({ 
             error: 'Demasiadas solicitudes. Por favor espera 10 minutos e intenta de nuevo.',
             isLoading: false 
@@ -257,9 +270,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           isLoading: false,
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
     //   console.error('Google login error:', error);
-      set({ error: error.message || 'Error de inicio de sesión con Google', isLoading: false });
+      const errorMessage = error instanceof Error ? error.message : 'Error de inicio de sesión con Google';
+      set({ error: errorMessage, isLoading: false });
       throw error;
     }
   },
@@ -279,7 +293,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           email: user.email,
           uid: user.uid,
           displayName: user.displayName || user.email?.split('@')[0],
-        }, idToken);
+        }, idToken) as unknown as OAuthResponse;
         
         // Check if user needs to complete profile
         if (response.status === "incomplete_profile") {
@@ -296,17 +310,20 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           return;
         }
         
-        // User exists in backend with complete profile, log them in
+        // User exists in backend with complete profile, fetch full user data
+        const userData = await apiClient.get(`/api/v1/users/me`, idToken) as unknown as UserInfoResponse;
+        const userInfo = userData.user;
+        
         const appUser: User = {
           uid: user.uid,
-          email: user.email,
-          displayName: user.displayName,
-          photoURL: user.photoURL,
-          age: response.age,
+          email: userInfo.email,
+          displayName: userInfo.firstName ? `${userInfo.firstName} ${userInfo.lastName || ''}`.trim() : user.displayName || '',
+          photoURL: user.photoURL || userInfo.photoURL || '',
+          age: userInfo.age,
         };
         
         set({ user: appUser, idToken, isLoading: false });
-      } catch (error: any) {
+      } catch {
         // User not found in backend (404 or other error), needs to complete registration
         console.log('User not found in backend, redirecting to complete profile');
         set({
@@ -319,8 +336,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           isLoading: false,
         });
       }
-    } catch (error: any) {
-      set({ error: error.message || 'Error de inicio de sesión con GitHub', isLoading: false });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Error de inicio de sesión con GitHub';
+      set({ error: errorMessage, isLoading: false });
       throw error;
     }
   },
@@ -354,8 +372,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         oauthUserData: null,
         isLoading: false 
       });
-    } catch (error: any) {
-      set({ error: error.message || 'Error al completar el registro', isLoading: false });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Error al completar el registro';
+      set({ error: errorMessage, isLoading: false });
       throw error;
     }
   },
@@ -374,8 +393,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         oauthUserData: null,
         isLoading: false 
       });
-    } catch (error: any) {
-      set({ error: error.message, isLoading: false });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Logout failed';
+      set({ error: errorMessage, isLoading: false });
       throw error;
     }
   },
@@ -388,8 +408,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       await apiClient.post('/api/v1/users/forgot-password', { email });
       set({ isLoading: false });
-    } catch (error: any) {
-      set({ error: error.message, isLoading: false });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Password reset failed';
+      set({ error: errorMessage, isLoading: false });
       throw error;
     }
   },
@@ -400,16 +421,20 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   updatePassword: async (currentPassword: string, newPassword: string) => {
     set({ isLoading: true, error: null });
     try {
-      // Re-authenticate user first
-      const user = auth.currentUser;
-      if (!user || !user.email) throw new Error('No authenticated user');
+      const { idToken } = get();
+      if (!idToken) throw new Error('No authenticated user');
       
-      await authService.loginWithEmail(user.email, currentPassword);
-      await authService.updatePassword(newPassword);
+      // Call backend to change password
+      await apiClient.patch('/api/v1/users/change-password', {
+        currentPassword,
+        password: newPassword,
+        confirmPassword: newPassword,
+      }, idToken || undefined);
       
       set({ isLoading: false });
-    } catch (error: any) {
-      set({ error: error.message, isLoading: false });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Password update failed';
+      set({ error: errorMessage, isLoading: false });
       throw error;
     }
   },
@@ -423,20 +448,27 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       const { user, idToken } = get();
       if (!user) throw new Error('No authenticated user');
 
+      // Split displayName into firstName and lastName
+      const nameParts = displayName.trim().split(/\s+/);
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
+
       // Update in backend
-      await apiClient.put(`/auth/user/${user.uid}`, {
-        displayName,
+      await apiClient.put(`/api/v1/users/edit-me`, {
+        firstName,
+        lastName,
         email,
         age,
-      }, idToken);
+      }, idToken || undefined);
 
       // Update local state
       set({ 
         user: { ...user, displayName, email, age },
         isLoading: false 
       });
-    } catch (error: any) {
-      set({ error: error.message, isLoading: false });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Profile update failed';
+      set({ error: errorMessage, isLoading: false });
       throw error;
     }
   },
@@ -447,12 +479,16 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   deleteAccount: async (password: string) => {
     set({ isLoading: true, error: null });
     try {
-      const user = auth.currentUser;
-      if (!user || !user.email) throw new Error('No authenticated user');
+      const { idToken } = get();
+      if (!idToken) throw new Error('No authenticated user');
       
-      // Re-authenticate user first
-      await authService.loginWithEmail(user.email, password);
-      await authService.deleteAccount();
+      // Call backend to delete account
+      await apiClient.delete('/api/v1/users/me', {
+        password,
+      }, idToken);
+      
+      // Logout from Firebase
+      await authService.logout();
       
       set({ 
         user: null, 
@@ -461,8 +497,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         oauthUserData: null, 
         isLoading: false 
       });
-    } catch (error: any) {
-      set({ error: error.message, isLoading: false });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Account deletion failed';
+      set({ error: errorMessage, isLoading: false });
       throw error;
     }
   },

@@ -3,6 +3,7 @@ import { Sidebar } from '../components/Sidebar';
 import { EditProfileModal } from '../components/EditProfileModal';
 import { ChangePasswordModal } from '../components/ChangePasswordModal';
 import { DeleteAccountModal } from '../components/DeleteAccountModal';
+import { useAuthStore } from '../stores/useAuthStore';
 
 /**
  * ProfilePage Component
@@ -11,53 +12,82 @@ import { DeleteAccountModal } from '../components/DeleteAccountModal';
  * (change password, edit profile, delete account)
  */
 export const ProfilePage: React.FC = () => {
-  // TODO: Get from auth context
-  const [user, setUser] = useState({
-    fullName: 'Jean Pierre Cardenas',
-    email: 'jean123456@gmail.com',
-    age: 12,
-    photoUrl: '/assets/profile-placeholder.jpg',
-  });
+  const { user: authUser, updateProfile, updatePassword, deleteAccount, isLoading } = useAuthStore();
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
   const [isDeleteAccountModalOpen, setIsDeleteAccountModalOpen] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
   const handleChangePassword = () => {
     setIsChangePasswordModalOpen(true);
   };
 
-  const handleSavePassword = (data: { currentPassword: string; newPassword: string; confirmPassword: string }) => {
-    // TODO: Implement save password logic
-    console.log('Changing password:', data);
-    setIsChangePasswordModalOpen(false);
+  const handleSavePassword = async (data: { currentPassword: string; newPassword: string; confirmPassword: string }) => {
+    try {
+      setErrorMessage('');
+      setSuccessMessage('');
+      
+      // Validate passwords match
+      if (data.newPassword !== data.confirmPassword) {
+        setErrorMessage('Las contraseñas no coinciden');
+        return;
+      }
+      
+      await updatePassword(data.currentPassword, data.newPassword);
+      
+      setSuccessMessage('Contraseña actualizada exitosamente');
+      setIsChangePasswordModalOpen(false);
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Error al cambiar la contraseña. Verifica tu contraseña actual.';
+      setErrorMessage(errorMessage);
+    }
   };
 
   const handleEditProfile = () => {
     setIsEditModalOpen(true);
   };
 
-  const handleSaveProfile = (data: { fullName: string; email: string; age: string }) => {
-    // TODO: Implement save profile logic
-    console.log('Saving profile:', data);
-    setUser({
-      ...user,
-      fullName: data.fullName,
-      email: data.email,
-      age: parseInt(data.age),
-    });
-    setIsEditModalOpen(false);
+  const handleSaveProfile = async (data: { fullName: string; email: string; age: string }) => {
+    try {
+      setErrorMessage('');
+      setSuccessMessage('');
+      
+      await updateProfile(data.fullName, data.email, parseInt(data.age));
+      
+      setSuccessMessage('Perfil actualizado exitosamente');
+      setIsEditModalOpen(false);
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Error al actualizar el perfil';
+      setErrorMessage(errorMessage);
+    }
   };
 
   const handleDeleteAccount = () => {
     setIsDeleteAccountModalOpen(true);
   };
 
-  const handleConfirmDelete = (password: string) => {
-    // TODO: Implement delete account logic
-    console.log('Deleting account with password:', password);
-    setIsDeleteAccountModalOpen(false);
-    // Redirect to home or login page after deletion
+  const handleConfirmDelete = async (password: string) => {
+    try {
+      setErrorMessage('');
+      setSuccessMessage('');
+      
+      await deleteAccount(password);
+      
+      // Account deleted successfully, redirect to home
+      window.location.href = '/';
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Error al eliminar la cuenta. Verifica tu contraseña.';
+      setErrorMessage(errorMessage);
+      setIsDeleteAccountModalOpen(false);
+    }
   };
 
   return (
@@ -79,13 +109,27 @@ export const ProfilePage: React.FC = () => {
 
         {/* Profile Card */}
         <div className="w-full max-w-md bg-(--color-container) rounded-2xl p-8">
+          {/* Success Message */}
+          {successMessage && (
+            <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+              <p className="text-sm text-green-400 text-center">{successMessage}</p>
+            </div>
+          )}
+
+          {/* Error Message */}
+          {errorMessage && (
+            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+              <p className="text-sm text-red-400 text-center">{errorMessage}</p>
+            </div>
+          )}
+
           {/* User Info Section */}
           <div className="flex items-start gap-6 mb-6">
             {/* Profile Photo */}
             <div className="shrink-0">
               <img
-                src={user.photoUrl}
-                alt={user.fullName}
+                src={authUser?.photoURL || '/assets/profile-placeholder.jpg'}
+                alt={authUser?.displayName || 'Usuario'}
                 className="w-24 h-24 rounded-full object-cover"
               />
             </div>
@@ -94,17 +138,17 @@ export const ProfilePage: React.FC = () => {
             <div className="flex-1">
               <div className="mb-4">
                 <p className="text-sm text-gray-400 mb-1">Nombre Completo</p>
-                <p className="text-lg font-semibold text-white">{user.fullName}</p>
+                <p className="text-lg font-semibold text-white">{authUser?.displayName || 'N/A'}</p>
               </div>
 
               <div className="mb-4">
                 <p className="text-sm text-gray-400 mb-1">Correo</p>
-                <p className="text-base text-white">{user.email}</p>
+                <p className="text-base text-white">{authUser?.email || 'N/A'}</p>
               </div>
 
               <div>
                 <p className="text-sm text-gray-400 mb-1">Edad</p>
-                <p className="text-base text-white">{user.age} años</p>
+                <p className="text-base text-white">{authUser?.age ? `${authUser.age} años` : 'N/A'}</p>
               </div>
             </div>
           </div>
@@ -139,7 +183,8 @@ export const ProfilePage: React.FC = () => {
             {/* Delete Account Button */}
             <button
               onClick={handleDeleteAccount}
-              className="w-full h-12 flex items-center justify-center gap-2 bg-(--color-error) hover:bg-(--color-error)/80 text-white font-semibold rounded-xl transition-colors"
+              disabled={isLoading}
+              className="w-full h-12 flex items-center justify-center gap-2 bg-(--color-error) hover:bg-(--color-error)/80 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -154,7 +199,11 @@ export const ProfilePage: React.FC = () => {
           isOpen={isEditModalOpen}
           onClose={() => setIsEditModalOpen(false)}
           onSave={handleSaveProfile}
-          initialData={user}
+          initialData={{
+            fullName: authUser?.displayName || '',
+            email: authUser?.email || '',
+            age: authUser?.age || 0,
+          }}
         />
 
         {/* Change Password Modal */}

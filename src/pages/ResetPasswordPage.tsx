@@ -95,8 +95,9 @@ export const ResetPasswordPage: React.FC = () => {
           message: 'Contraseña restablecida exitosamente. Por favor inicia sesión con tu nueva contraseña.'
         }
       });
-    } catch (error: any) {
-      setGeneralError(error.message || 'Error al restablecer la contraseña. Inténtalo de nuevo.');
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Error al restablecer la contraseña. Inténtalo de nuevo.';
+      setGeneralError(errorMessage);
     } finally {
       setIsLoading(false);
     }

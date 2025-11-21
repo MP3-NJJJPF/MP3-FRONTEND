@@ -5,6 +5,16 @@
 const API_URL = import.meta.env.VITE_BACKEND_URL ?? "http://localhost:3000";
 
 /**
+ * Type for request body - can be any JSON-serializable object
+ */
+type RequestBody = Record<string, unknown> | unknown[] | null | undefined;
+
+/**
+ * Type for API response - can be any JSON object
+ */
+type ApiResponse = Record<string, unknown> | unknown[] | null;
+
+/**
  * API client for making HTTP requests to the backend
  * Provides a centralized way to handle authentication and API calls
  */
@@ -13,12 +23,12 @@ export const apiClient = {
      * Generic request method that handles all HTTP calls
      * @param {string} method - HTTP method (GET, POST, PUT, DELETE, etc.)
      * @param {string} path - API endpoint path (e.g., "/users", "/auth/login")
-     * @param {any} [body] - Request payload for POST/PUT requests
+     * @param {RequestBody} [body] - Request payload for POST/PUT requests
      * @param {string} [token] - JWT token for authenticated requests
-     * @returns {Promise<any>} Parsed JSON response from the server
+     * @returns {Promise<ApiResponse>} Parsed JSON response from the server
      * @throws {Error} If the request fails or returns a non-2xx status code
      */
-    async request(method: string, path: string, body?: any, token?: string) {
+    async request(method: string, path: string, body?: RequestBody, token?: string): Promise<ApiResponse> {
         // Initialize headers with default Content-Type
         const headers: Record<string, string> = {
             "Content-Type": "application/json",
@@ -62,49 +72,64 @@ export const apiClient = {
      * Performs a GET request to fetch data
      * @param {string} path - API endpoint path
      * @param {string} [token] - JWT token for authenticated requests
-     * @returns {Promise<any>} Response data
+     * @returns {Promise<ApiResponse>} Response data
      * @example
      * const users = await apiClient.get("/users", userToken);
      */
-    async get(path: string, token?: string) {
+    async get(path: string, token?: string): Promise<ApiResponse> {
         return this.request("GET", path, null, token);
     },
 
     /**
      * Performs a POST request to create new resources
      * @param {string} path - API endpoint path
-     * @param {any} [body] - Data to send in the request body
+     * @param {RequestBody} [body] - Data to send in the request body
      * @param {string} [token] - JWT token for authenticated requests
-     * @returns {Promise<any>} Response data (usually the created resource)
+     * @returns {Promise<ApiResponse>} Response data (usually the created resource)
      * @example
      * const newUser = await apiClient.post("/users", { name: "John" }, token);
      */
-    async post(path: string, body?: any, token?: string) {
+    async post(path: string, body?: RequestBody, token?: string): Promise<ApiResponse> {
         return this.request("POST", path, body, token);
     },
 
     /**
      * Performs a PUT request to update existing resources
      * @param {string} path - API endpoint path
-     * @param {any} [body] - Updated data to send
+     * @param {RequestBody} [body] - Updated data to send
      * @param {string} [token] - JWT token for authenticated requests
-     * @returns {Promise<any>} Response data (usually the updated resource)
+     * @returns {Promise<ApiResponse>} Response data (usually the updated resource)
      * @example
      * const updated = await apiClient.put("/users/123", { name: "Jane" }, token);
      */
-    async put(path: string, body?: any, token?: string) {
+    async put(path: string, body?: RequestBody, token?: string): Promise<ApiResponse> {
         return this.request("PUT", path, body, token);
+    },
+
+    /**
+     * Performs a PATCH request to partially update existing resources
+     * @param {string} path - API endpoint path
+     * @param {RequestBody} [body] - Partial data to update
+     * @param {string} [token] - JWT token for authenticated requests
+     * @returns {Promise<ApiResponse>} Response data (usually the updated resource)
+     * @example
+     * const updated = await apiClient.patch("/users/123", { password: "new" }, token);
+     */
+    async patch(path: string, body?: RequestBody, token?: string): Promise<ApiResponse> {
+        return this.request("PATCH", path, body, token);
     },
 
     /**
      * Performs a DELETE request to remove resources
      * @param {string} path - API endpoint path
+     * @param {RequestBody} [body] - Request body (optional, for DELETE with body)
      * @param {string} [token] - JWT token for authenticated requests
-     * @returns {Promise<any>} Response data (usually confirmation message)
+     * @returns {Promise<ApiResponse>} Response data (usually confirmation message)
      * @example
-     * await apiClient.delete("/users/123", token);
+     * await apiClient.delete("/users/123", null, token);
+     * await apiClient.delete("/users/me", { password: "secret" }, token);
      */
-    async delete(path: string, token?: string) {
-        return this.request("DELETE", path, null, token);
+    async delete(path: string, body?: RequestBody, token?: string): Promise<ApiResponse> {
+        return this.request("DELETE", path, body, token);
     },
 };
