@@ -33,14 +33,9 @@ const CompleteProfile = () => {
 
     try {
       const payload = {
-        firstName: form.name,
         age: Number(form.age),
-        password: form.password,
-        confirmPassword: form.confirmPassword,
-        email: form.email,
-        lastName: "NADA",
-        googleUid,
       };
+      
 
       const response = await apiClient.post(
         "/api/v1/users/complete-profile",

@@ -1,4 +1,4 @@
-import { auth, googleProvider } from "../lib/firebase.config";
+import { auth, googleProvider, githubProvider} from "../lib/firebase.config";
 
 // Import the signInWithPopup function from Firebase Authentication
 // This function opens a popup window for authentication
@@ -18,5 +18,21 @@ export const loginWithGoogle = async () => {
   const idToken = await user.getIdToken();
 
   // Return both the user object and the authentication token
+  return { user, idToken };
+};
+
+// export const loginWithFacebook = async () => {
+//   const result = await signInWithPopup(auth, facebookProvider);
+//   const user = result.user;
+//   const idToken = await user.getIdToken();
+//   return { user, idToken };
+// };
+
+export const loginWithGithub = async () => {
+  const result = await signInWithPopup(auth, githubProvider);
+
+  const user = result.user;
+  const idToken = await user.getIdToken();
+
   return { user, idToken };
 };
