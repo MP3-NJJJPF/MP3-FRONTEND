@@ -23,7 +23,6 @@ export const ProfilePage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  console.log(authUser)
   
 
   const handleChangePassword = () => {
@@ -135,7 +134,6 @@ export const ProfilePage: React.FC = () => {
             <div className="shrink-0">
               <img
                 src={authUser?.photoURL && authUser.photoURL.trim() !== "" ? authUser.photoURL : '/assets/profile-placeholder.jpg'}
-
                 alt={authUser?.displayName || 'Usuario'}
                 className="w-24 h-24 rounded-full object-cover"
               />
