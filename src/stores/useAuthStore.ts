@@ -57,7 +57,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   // Initial state
   user: null,
   idToken: null,
-  isLoading: false,
+  isLoading: true,
   error: null,
   isNewOAuthUser: false,
   oauthUserData: null,
@@ -74,66 +74,123 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
    * Listens to authentication state changes and fetches user data from backend
    */
   initAuthObserver: () => {
-    const unsubscribe = onAuthStateChanged(
-      auth,
-      async (fbUser: FirebaseUser | null) => {
-        if (fbUser) {
+  console.log('🚀 initAuthObserver: Starting...');
+  
+  const unsubscribe = onAuthStateChanged(
+    auth,
+    async (fbUser: FirebaseUser | null) => {
+      console.log('🔥 Firebase onAuthStateChanged triggered');
+      console.log('👤 Firebase User:', fbUser ? 'EXISTS' : 'NULL');
+      
+      if (fbUser) {
+        console.log('📧 Email:', fbUser.email);
+        console.log('🆔 UID:', fbUser.uid);
+        console.log('🔐 Providers:', fbUser.providerData.map(p => p.providerId));
+        
+        // ✅ SET LOADING TRUE while fetching user data
+        console.log('⏳ Setting isLoading: true');
+        set({ isLoading: true });
+        
+        try {
+          // Get Firebase ID token
+          const idToken = await fbUser.getIdToken();
+          console.log('🎫 Firebase ID Token obtained:', idToken ? 'YES' : 'NO');
+          
+          // Determine if user is OAuth or email/password
+          const isOAuthUser = fbUser.providerData.some(
+            provider => provider.providerId === 'google.com' || provider.providerId === 'github.com'
+          );
+          
+          console.log('🔍 User type:', isOAuthUser ? 'OAuth' : 'Email/Password');
+          
+          // Try to get user data from backend using /users/me
           try {
-            const idToken = await fbUser.getIdToken();
+            console.log('📡 Calling /users/me with token:', isOAuthUser ? 'Firebase Token' : 'undefined (using cookies)');
             
-            // Try to get user data from backend
-            try {
-              const response = await apiClient.post(`/api/v1/users/login`, {
-                email: fbUser.email,
-                uid: fbUser.uid,
-                displayName: fbUser.displayName || fbUser.email?.split('@')[0],
-              }, idToken) as unknown as LoginResponse & { age?: number };
-              
-              const user: User = {
-                uid: fbUser.uid,
-                email: fbUser.email,
-                displayName: fbUser.displayName,
-                photoURL: fbUser.photoURL,
-                age: response.age,
-              };
+            const userData = await apiClient.get(
+              `/api/v1/users/me`, 
+              isOAuthUser ? idToken : undefined
+            ) as unknown as UserInfoResponse;
+            
+            const userInfo = userData.user;
+            
+            console.log('✅ User data fetched successfully:', userInfo);
+            
+            const user: User = {
+              uid: fbUser.uid,
+              email: userInfo.email,
+              displayName: userInfo.firstName 
+                ? `${userInfo.firstName} ${userInfo.lastName || ''}`.trim() 
+                : fbUser.displayName || '',
+              photoURL: fbUser.photoURL || userInfo.photoURL || '',
+              age: userInfo.age,
+            };
 
-              set({ user, idToken, error: null });
-            } catch {
-              // User not found in backend, might need to complete profile
-              console.log('User not found in backend during auth observer');
-              
-              const user: User = {
-                uid: fbUser.uid,
-                email: fbUser.email,
-                displayName: fbUser.displayName,
-                photoURL: fbUser.photoURL,
-                age: undefined,
-              };
+            console.log('💾 Setting user in store:', user);
+            console.log('✅ Setting isLoading: false');
+            
+            // ✅ SET LOADING FALSE after successful fetch
+            set({ 
+              user, 
+              idToken: isOAuthUser ? idToken : null, 
+              isLoading: false, 
+              error: null 
+            });
+            
+            console.log('🎉 Auth observer completed successfully');
+          } catch (error) {
+            console.error('❌ Error fetching user data:', error);
+            
+            // User not found in backend, might need to complete profile
+            console.log('⚠️ User not found in backend during auth observer');
+            
+            const user: User = {
+              uid: fbUser.uid,
+              email: fbUser.email,
+              displayName: fbUser.displayName,
+              photoURL: fbUser.photoURL,
+              age: undefined,
+            };
 
-              set({ user, idToken, error: null });
-            }
-          } catch (error: unknown) {
-            console.error('Auth observer error:', error);
-            const errorMessage = error instanceof Error ? error.message : 'Authentication error';
-            set({ error: errorMessage });
+            console.log('💾 Setting partial user in store:', user);
+            console.log('✅ Setting isLoading: false');
+            
+            // ✅ SET LOADING FALSE even if user not found
+            set({ user, idToken, isLoading: false, error: null });
           }
-        } else {
-          set({ 
-            user: null, 
-            idToken: null, 
-            isNewOAuthUser: false,
-            oauthUserData: null 
-          });
+        } catch (error: unknown) {
+          console.error('💥 Auth observer error:', error);
+          const errorMessage = error instanceof Error ? error.message : 'Authentication error';
+          console.log('❌ Setting isLoading: false with error');
+          
+          // ✅ SET LOADING FALSE on error
+          set({ error: errorMessage, isLoading: false });
         }
-      },
-      (error) => {
-        console.error('Auth state change error:', error);
-        set({ error: error.message });
+      } else {
+        console.log('👋 No Firebase user, clearing store');
+        console.log('✅ Setting isLoading: false');
+        
+        // ✅ SET LOADING FALSE when no user
+        set({ 
+          user: null, 
+          idToken: null, 
+          isNewOAuthUser: false,
+          oauthUserData: null,
+          isLoading: false
+        });
       }
-    );
+    },
+    (error) => {
+      console.error('💥 Auth state change error:', error);
+      console.log('❌ Setting isLoading: false due to auth state error');
+      
+      // ✅ SET LOADING FALSE on auth state error
+      set({ error: error.message, isLoading: false });
+    }
+  );
 
-    return unsubscribe;
-  },
+  return unsubscribe;
+},
 
   /**
    * Login with email and password
@@ -143,12 +200,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       // Authenticate with backend
       const loginResponse = await apiClient.post(`/api/v1/users/login`, {email, password}) as unknown as LoginResponse;
-      
-      // Get the token from login response
-      const idToken = loginResponse.token;
-      
-      // Fetch complete user data using /me endpoint
-      const userData = await apiClient.get(`/api/v1/users/me`, idToken) as unknown as UserInfoResponse;
+      const userData = await apiClient.get(`/api/v1/users/me`, undefined) as unknown as UserInfoResponse;
       const userInfo = userData.user;
       
       const appUser: User = {
@@ -159,7 +211,8 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         age: userInfo.age,
       };
 
-      set({ user: appUser, idToken, isLoading: false });
+      
+      set({ user: appUser, idToken: null, isLoading: false });
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Login failed';
       set({ error: errorMessage, isLoading: false });
