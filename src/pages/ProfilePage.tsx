@@ -5,6 +5,7 @@ import { ChangePasswordModal } from '../components/ChangePasswordModal';
 import { DeleteAccountModal } from '../components/DeleteAccountModal';
 import { useAuthStore } from '../stores/useAuthStore';
 
+
 /**
  * ProfilePage Component
  * User profile management page
@@ -14,11 +15,15 @@ import { useAuthStore } from '../stores/useAuthStore';
 export const ProfilePage: React.FC = () => {
   const { user: authUser, updateProfile, updatePassword, deleteAccount, isLoading } = useAuthStore();
 
+
+
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
   const [isDeleteAccountModalOpen, setIsDeleteAccountModalOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  
 
   const handleChangePassword = () => {
     setIsChangePasswordModalOpen(true);
@@ -128,7 +133,7 @@ export const ProfilePage: React.FC = () => {
             {/* Profile Photo */}
             <div className="shrink-0">
               <img
-                src={authUser?.photoURL || '/assets/profile-placeholder.jpg'}
+                src={authUser?.photoURL && authUser.photoURL.trim() !== "" ? authUser.photoURL : '/assets/profile-placeholder.jpg'}
                 alt={authUser?.displayName || 'Usuario'}
                 className="w-24 h-24 rounded-full object-cover"
               />
