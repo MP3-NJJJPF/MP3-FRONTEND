@@ -15,6 +15,8 @@ import { useAuthStore } from '../stores/useAuthStore';
 export const ProfilePage: React.FC = () => {
   const { user: authUser, updateProfile, updatePassword, deleteAccount, isLoading } = useAuthStore();
 
+  console.log('Auth User:', authUser);
+
 
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);

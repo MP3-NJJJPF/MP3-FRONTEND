@@ -15,8 +15,14 @@ interface ProtectedRouteProps {
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const { user, isNewOAuthUser, isLoading } = useAuthStore();
 
+  console.log('🛡️ ProtectedRoute check:');
+  console.log('  - isLoading:', isLoading);
+  console.log('  - user:', user);
+  console.log('  - isNewOAuthUser:', isNewOAuthUser);
+
   // Show loading state while checking auth
   if (isLoading) {
+    console.log('  ➡️ Showing loading spinner');
     return (
       <div className="min-h-screen flex items-center justify-center bg-(--color-background)">
         <div className="text-center">
@@ -29,14 +35,17 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
 
   // Redirect to login if not authenticated
   if (!user) {
+    console.log('  ➡️ Redirecting to /login (no user)');
     return <Navigate to="/login" replace />;
   }
 
   // Redirect to complete OAuth if user needs to complete registration
   if (isNewOAuthUser) {
+    console.log('  ➡️ Redirecting to /complete-oauth');
     return <Navigate to="/complete-oauth" replace />;
   }
 
+  console.log('  ✅ Access granted');
   // User is authenticated and registration is complete
   return <>{children}</>;
 };

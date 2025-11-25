@@ -1,5 +1,7 @@
 import { auth, googleProvider, githubProvider } from "../lib/firebase.config";
 import {
+  setPersistence,
+  browserLocalPersistence,
   signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -33,6 +35,7 @@ export const loginWithEmail = async (email: string, password: string) => {
   const userCredential = await signInWithEmailAndPassword(auth, email, password);
   const user = userCredential.user;
   const idToken = await user.getIdToken();
+  await setPersistence(auth, browserLocalPersistence);
 
   return { user, idToken };
 };
