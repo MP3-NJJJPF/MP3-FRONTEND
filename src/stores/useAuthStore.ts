@@ -89,7 +89,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         }
 
         if (fbUser) {
-          // ✅ SET LOADING TRUE while fetching user data
+          // SET LOADING TRUE while fetching user data
           set({ isLoading: true });
           try {
             // Get Firebase ID token
