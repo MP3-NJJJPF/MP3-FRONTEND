@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, use } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { Sidebar } from '../components/Sidebar';
 import { LeaveCallModal } from '../components/LeaveCallModal';
+import { socket } from '../sockets/socketManager';
+import { useAuthStore } from '../stores/useAuthStore';
+import { OnlineUser } from '../types/api.types';
 
 /**
  * CallRoomPage Component
@@ -14,6 +17,39 @@ export const CallRoomPage: React.FC = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessage, setChatMessage] = useState('');
   const [isLeaveCallModalOpen, setIsLeaveCallModalOpen] = useState(false);
+
+  const { user } = useAuthStore();
+
+  useEffect(() => {
+    if (!user || !roomId) return;
+    const photo = user.photoURL && user.photoURL.length > 5
+      ? user.photoURL
+      : "/assets/profile-placeholder.jpg";
+
+    console.log("Enviando usuario al socket:", { userId: user.uid, name: user.displayName, photo });
+
+    socket.emit("newUser", {
+      userId: user.uid,
+      name: user.displayName,
+      photo,
+      roomId
+    });
+  }, [user?.uid, user?.displayName, user?.photoURL, roomId]);
+
+
+  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
+
+  useEffect(() => {
+    const handler = (users: OnlineUser[]) => {
+      setOnlineUsers(users);
+    };
+
+    socket.on("usersOnline", handler);
+
+    return () => {
+      socket.off("usersOnline", handler);
+    };
+  }, []);
 
   // Mock data for participants
   const mainParticipant = {
@@ -52,6 +88,7 @@ export const CallRoomPage: React.FC = () => {
 
   const handleConfirmLeave = () => {
     console.log('Leaving call...');
+    socket.emit("leave-call", { roomId });
     setIsLeaveCallModalOpen(false);
     navigate('/dashboard');
   };
@@ -81,7 +118,7 @@ export const CallRoomPage: React.FC = () => {
                 alt={mainParticipant.name}
                 className="w-full h-full object-cover"
               />
-              
+
               {/* Participant Name Badge */}
               <div className="absolute bottom-4 left-4 px-4 py-2 bg-black/60 rounded-full">
                 <span className="text-sm font-medium text-white">{mainParticipant.name}</span>
@@ -90,7 +127,7 @@ export const CallRoomPage: React.FC = () => {
 
             {/* Participants Gallery */}
             <div className="flex items-center gap-3 pb-4">
-              {participants.map((participant) => (
+              {/* {participants.map((participant) => (
                 <div
                   key={participant.id}
                   className="relative w-40 h-28 bg-(--color-container) rounded-xl overflow-hidden shrink-0"
@@ -102,6 +139,23 @@ export const CallRoomPage: React.FC = () => {
                   />
                   <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/60 rounded-full">
                     <span className="text-xs font-medium text-white">{participant.name}</span>
+                  </div>
+                </div>
+              ))} */}
+
+              {onlineUsers.map((u) => (
+                <div
+                  key={u.socketId}   // llave correcta
+                  className="relative w-40 h-28 bg-(--color-container) rounded-xl overflow-hidden shrink-0"
+                >
+                  <img
+                    src={u.photo || "/assets/profile-placeholder.jpg"}
+                    alt={u.name || "Usuario"}
+                    className="w-full h-full object-cover"
+                  />
+
+                  <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/60 rounded-full">
+                    <span className="text-xs font-medium text-white">{u.name}</span>
                   </div>
                 </div>
               ))}
@@ -141,9 +195,8 @@ export const CallRoomPage: React.FC = () => {
                         {msg.sender} {msg.time}
                       </span>
                     </div>
-                    <div className={`px-4 py-2 rounded-xl max-w-xs ${
-                      msg.isOwn ? 'bg-(--color-primary) text-white' : 'bg-(--color-input-bg) text-white'
-                    }`}>
+                    <div className={`px-4 py-2 rounded-xl max-w-xs ${msg.isOwn ? 'bg-(--color-primary) text-white' : 'bg-(--color-input-bg) text-white'
+                      }`}>
                       <p className="text-sm">{msg.message}</p>
                     </div>
                   </div>

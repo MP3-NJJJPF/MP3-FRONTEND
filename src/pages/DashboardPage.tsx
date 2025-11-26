@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { data, useNavigate } from 'react-router';
 import { Sidebar } from '../components/Sidebar';
 import { useAuthStore } from '../stores/useAuthStore';
+import { apiClient } from '../fetch/fetchClient';
 
 /**
  * DashboardPage Component
@@ -12,31 +13,81 @@ import { useAuthStore } from '../stores/useAuthStore';
 export const DashboardPage: React.FC = () => {
   const [meetingCode, setMeetingCode] = useState('');
   const { user } = useAuthStore();
-  
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+
   // Get first two words from displayName
   const getFirstTwoWords = (name: string | null | undefined) => {
     if (!name) return 'Usuario';
     const words = name.trim().split(/\s+/);
     return words.slice(0, 2).join(' ');
   };
-  
-  const userName = getFirstTwoWords(user?.displayName);
-  const navigate = useNavigate();
 
-  const handleCreateMeeting = () => {
-    // TODO: Implement meeting creation logic
-    // Generate random room ID and navigate to call room
-    const roomId = Math.floor(1000000 + Math.random() * 9000000).toString();
-    console.log('Creating new meeting with ID:', roomId);
-    navigate(`/call/${roomId}`);
+  const userName = getFirstTwoWords(user?.displayName);
+
+  // const handleCreateMeeting = () => {
+  //   // TODO: Implement meeting creation logic
+  //   // Generate random room ID and navigate to call room
+  //   const roomId = Math.floor(1000000 + Math.random() * 9000000).toString();
+  //   console.log('Creating new meeting with ID:', roomId);
+  //   navigate(`/call/${roomId}`);
+  // };
+
+  const handleCreateMeeting = async () => {
+    try {
+      setLoading(true);
+      const res: any = await apiClient.post("/api/v1/meetings/create", { "hostId": user?.uid });
+
+      if (!res.ok) {
+        alert("Error al crear la reunión");
+        return;
+      }
+
+      console.log("Meeting created:", res.meetingId);
+
+      navigate(`/call/${res.meetingId}`);
+
+    } catch (error) {
+      console.error("Error creating meeting:", error);
+      alert("Hubo un problema creando la reunión.");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleJoinMeeting = (e: React.FormEvent) => {
+  // const handleJoinMeeting = (e: React.FormEvent) => {
+  //   e.preventDefault();
+  //   if (meetingCode.trim()) {
+  //     // TODO: Implement join meeting logic
+  //     console.log('Joining meeting with code:', meetingCode);
+  //     navigate(`/call/${meetingCode}`);
+  //   }
+  // };
+
+  const handleJoinMeeting = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (meetingCode.trim()) {
-      // TODO: Implement join meeting logic
-      console.log('Joining meeting with code:', meetingCode);
+
+    if (!meetingCode.trim()) return;
+
+    try {
+      setLoading(true);
+
+      const res: any = await apiClient.get(`/api/v1/meetings/${meetingCode}`);
+
+      if (!res.ok) {
+        alert("La reunión no existe");
+        return;
+      }
+
+      console.log("Joining meeting:", meetingCode);
+
       navigate(`/call/${meetingCode}`);
+
+    } catch (error) {
+      console.error("Error joining meeting:", error);
+      alert("Hubo un error al intentar unirse.");
+    } finally {
+      setLoading(false);
     }
   };
 

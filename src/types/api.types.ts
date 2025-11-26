@@ -24,6 +24,8 @@ export interface LoginResponse {
   token: string;
   id: string;
   email: string;
+  name: string;
+  age?: number;
 }
 
 /**
@@ -48,4 +50,11 @@ export interface OAuthResponse {
 export interface ApiSuccessResponse {
   message?: string;
   status?: string;
+}
+
+export interface OnlineUser {
+  socketId: string;
+  userId: string;
+  name: string;
+  photo?: string;
 }

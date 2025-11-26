@@ -15,8 +15,6 @@ import { useAuthStore } from '../stores/useAuthStore';
 export const ProfilePage: React.FC = () => {
   const { user: authUser, updateProfile, updatePassword, deleteAccount, isLoading } = useAuthStore();
 
-
-
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
   const [isDeleteAccountModalOpen, setIsDeleteAccountModalOpen] = useState(false);

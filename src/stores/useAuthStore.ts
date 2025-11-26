@@ -4,6 +4,7 @@ import { auth } from '../lib/firebase.config';
 import * as authService from '../services/auth.service';
 import { apiClient } from '../fetch/fetchClient';
 import type { LoginResponse, UserInfoResponse, OAuthResponse } from '../types/api.types';
+import { signInWithEmailAndPassword } from "firebase/auth";
 
 /**
  * User interface with application-specific data
@@ -35,7 +36,7 @@ interface AuthStore {
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setOAuthUserData: (data: { displayName: string; email: string } | null) => void;
-  
+
   // Auth methods
   initAuthObserver: () => () => void;
   loginWithEmail: (email: string, password: string) => Promise<void>;
@@ -57,7 +58,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   // Initial state
   user: null,
   idToken: null,
-  isLoading: false,
+  isLoading: true,
   error: null,
   isNewOAuthUser: false,
   oauthUserData: null,
@@ -74,34 +75,56 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
    * Listens to authentication state changes and fetches user data from backend
    */
   initAuthObserver: () => {
+
     const unsubscribe = onAuthStateChanged(
       auth,
       async (fbUser: FirebaseUser | null) => {
+
         if (fbUser) {
+
+          // ✅ SET LOADING TRUE while fetching user data
+          set({ isLoading: true });
+
           try {
+            // Get Firebase ID token
             const idToken = await fbUser.getIdToken();
-            
-            // Try to get user data from backend
+
+            // Determine if user is OAuth or email/password
+            const isOAuthUser = fbUser.providerData.some(
+              provider => provider.providerId === 'google.com' || provider.providerId === 'github.com'
+            );
+
+
+            // Try to get user data from backend using /users/me
             try {
-              const response = await apiClient.post(`/api/v1/users/login`, {
-                email: fbUser.email,
-                uid: fbUser.uid,
-                displayName: fbUser.displayName || fbUser.email?.split('@')[0],
-              }, idToken) as unknown as LoginResponse & { age?: number };
-              
+
+              const userData = await apiClient.get(
+                `/api/v1/users/me`,
+                isOAuthUser ? idToken : undefined
+              ) as unknown as UserInfoResponse;
+
+              const userInfo = userData.user;
+
               const user: User = {
                 uid: fbUser.uid,
-                email: fbUser.email,
-                displayName: fbUser.displayName,
-                photoURL: fbUser.photoURL,
-                age: response.age,
+                email: userInfo.email,
+                displayName: userInfo.firstName
+                  ? `${userInfo.firstName} ${userInfo.lastName || ''}`.trim()
+                  : fbUser.displayName || '',
+                photoURL: fbUser.photoURL || userInfo.photoURL || '',
+                age: userInfo.age,
               };
 
-              set({ user, idToken, error: null });
-            } catch {
+              set({
+                user,
+                idToken: isOAuthUser ? idToken : null,
+                isLoading: false,
+                error: null
+              });
+            } catch (error) {
+              console.error('❌ Error fetching user data:', error);
+
               // User not found in backend, might need to complete profile
-              console.log('User not found in backend during auth observer');
-              
               const user: User = {
                 uid: fbUser.uid,
                 email: fbUser.email,
@@ -110,25 +133,58 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
                 age: undefined,
               };
 
-              set({ user, idToken, error: null });
+              set({ user, idToken, isLoading: false, error: null });
             }
           } catch (error: unknown) {
-            console.error('Auth observer error:', error);
             const errorMessage = error instanceof Error ? error.message : 'Authentication error';
-            set({ error: errorMessage });
+            set({ error: errorMessage, isLoading: false });
           }
         } else {
-          set({ 
-            user: null, 
-            idToken: null, 
+
+          try {
+            // 1️⃣ Verificar si el token en cookie es válido
+            await apiClient.get("/api/v1/users/check-token");
+
+            // 2️⃣ Si es válido → obtener los datos del usuario real desde /me
+            const meResponse: any = await apiClient.get("/api/v1/users/me");
+
+            const userInfo = meResponse.user;
+
+            set({
+              user: {
+                uid: userInfo.uid,
+                email: userInfo.email,
+                displayName: userInfo.firstName + " " + (userInfo.lastName || ""),
+                photoURL: "",
+                age: userInfo.age,
+              },
+              isLoading: false,
+              isNewOAuthUser: false,
+              oauthUserData: null,
+            });
+
+            return;
+
+          } catch (err) {
+            console.log("Cookie no válida o expirada");
+          }
+
+          // 3️⃣ Si falla → limpiar estado
+          set({
+            user: null,
+            idToken: null,
             isNewOAuthUser: false,
-            oauthUserData: null 
+            oauthUserData: null,
+            isLoading: false,
           });
         }
+
       },
       (error) => {
-        console.error('Auth state change error:', error);
-        set({ error: error.message });
+        console.error('💥 Auth state change error:', error);
+
+        // ✅ SET LOADING FALSE on auth state error
+        set({ error: error.message, isLoading: false });
       }
     );
 
@@ -136,36 +192,47 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
 
   /**
-   * Login with email and password
-   */
+ * Login with email and password (manual login)
+ */
   loginWithEmail: async (email: string, password: string) => {
     set({ isLoading: true, error: null });
+
     try {
-      // Authenticate with backend
-      const loginResponse = await apiClient.post(`/api/v1/users/login`, {email, password}) as unknown as LoginResponse;
-      
-      // Get the token from login response
-      const idToken = loginResponse.token;
-      
-      // Fetch complete user data using /me endpoint
-      const userData = await apiClient.get(`/api/v1/users/me`, idToken) as unknown as UserInfoResponse;
-      const userInfo = userData.user;
-      
+      // 1. LOGIN en backend (esto setea cookie "token")
+      const response = await apiClient.post(
+        "/api/v1/users/login",
+        { email, password }
+      ) as unknown as LoginResponse;
+
+      // 2. Construir el usuario tal como tu store espera
       const appUser: User = {
-        uid: loginResponse.id || userInfo.id || email,
-        email: userInfo.email,
-        displayName: userInfo.firstName ? `${userInfo.firstName} ${userInfo.lastName || ''}`.trim() : userInfo.email?.split('@')[0] || '',
-        photoURL: userInfo.photoURL || '',
-        age: userInfo.age,
+        uid: response.id,
+        email: response.email,
+        displayName: response.name || response.email.split("@")[0],
+        age: response.age,
+        photoURL: "",  // tu backend no maneja fotos
       };
 
-      set({ user: appUser, idToken, isLoading: false });
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Login failed';
-      set({ error: errorMessage, isLoading: false });
-      throw error;
+      // 3. Guardar usuario en Zustand
+      set({
+        user: appUser,
+        idToken: null, // porque el login manual NO usa Firebase
+        isNewOAuthUser: false,
+        oauthUserData: null,
+        isLoading: false,
+      });
+
+      //return appUser;
+
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.message || "Login failed";
+
+      set({ error: message, isLoading: false });
+      throw new Error(message);
     }
   },
+
 
   /**
    * Register new user with email and password
@@ -200,10 +267,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const { user, idToken } = await authService.loginWithGoogle();
-    //   console.log('Google login successful, checking backend...', { uid: user.uid });
-    //   console.log('Token:', idToken ? 'Present' : 'Missing');
-    //   console.log('Making request to: POST /api/v1/users/login');
-      
+
       // Try to get user data from backend to check if they're registered
       try {
         const response = await apiClient.post(`/api/v1/users/google`, {
@@ -211,11 +275,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           uid: user.uid,
           displayName: user.displayName || user.email?.split('@')[0],
         }, idToken) as unknown as OAuthResponse;
-        console.log('Backend response:', response);
-        
+
         // Check if user needs to complete profile
         if (response.status === "incomplete_profile") {
-        //   console.log('User has incomplete profile, redirecting to complete profile');
           set({
             isNewOAuthUser: true,
             oauthUserData: {
@@ -227,11 +289,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           });
           return;
         }
-        
+
         // User exists in backend with complete profile, fetch full user data
         const userData = await apiClient.get(`/api/v1/users/me`, idToken) as unknown as UserInfoResponse;
         const userInfo = userData.user;
-        
+
         const appUser: User = {
           uid: user.uid,
           email: userInfo.email,
@@ -239,27 +301,19 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           photoURL: user.photoURL || userInfo.photoURL || '',
           age: userInfo.age,
         };
-        
-        // console.log('User found in backend, logging in:', appUser);
+
         set({ user: appUser, idToken, isLoading: false });
       } catch (error: unknown) {
-        // Backend error - could be 404 (not found), 500 (server error), or 429 (rate limit)
-        // console.log('Backend error:', error);
-        
         // If it's a rate limit error (429), show message and don't redirect
         const errorMessage = error instanceof Error ? error.message : '';
         if (errorMessage.includes('429')) {
-          set({ 
+          set({
             error: 'Demasiadas solicitudes. Por favor espera 10 minutos e intenta de nuevo.',
-            isLoading: false 
+            isLoading: false
           });
           return;
         }
-        
-        // If it's a 500 error, the backend might be down but user might exist
-        // For now, assume new user and redirect to complete profile
-        // TODO: Ask backend team for correct endpoint to check user existence
-        // console.log('User not found in backend or backend error, redirecting to complete profile');
+
         set({
           isNewOAuthUser: true,
           oauthUserData: {
@@ -271,7 +325,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         });
       }
     } catch (error: unknown) {
-    //   console.error('Google login error:', error);
+      //   console.error('Google login error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Error de inicio de sesión con Google';
       set({ error: errorMessage, isLoading: false });
       throw error;
@@ -286,7 +340,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const { user, idToken } = await authService.loginWithGithub();
-      
+
       // Try to get user data from backend to check if they're registered
       try {
         const response = await apiClient.post(`/api/v1/users/google`, {
@@ -294,10 +348,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           uid: user.uid,
           displayName: user.displayName || user.email?.split('@')[0],
         }, idToken) as unknown as OAuthResponse;
-        
+
         // Check if user needs to complete profile
         if (response.status === "incomplete_profile") {
-          console.log('User has incomplete profile, redirecting to complete profile');
           set({
             isNewOAuthUser: true,
             oauthUserData: {
@@ -309,11 +362,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           });
           return;
         }
-        
+
         // User exists in backend with complete profile, fetch full user data
         const userData = await apiClient.get(`/api/v1/users/me`, idToken) as unknown as UserInfoResponse;
         const userInfo = userData.user;
-        
+
         const appUser: User = {
           uid: user.uid,
           email: userInfo.email,
@@ -321,11 +374,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           photoURL: user.photoURL || userInfo.photoURL || '',
           age: userInfo.age,
         };
-        
+
         set({ user: appUser, idToken, isLoading: false });
       } catch {
         // User not found in backend (404 or other error), needs to complete registration
-        console.log('User not found in backend, redirecting to complete profile');
         set({
           isNewOAuthUser: true,
           oauthUserData: {
@@ -351,12 +403,12 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       await authService.completeOAuthRegistration(age);
       const firebaseUser = auth.currentUser;
-      
+
       if (!firebaseUser) throw new Error('No authenticated user');
-      
+
       const idToken = await firebaseUser.getIdToken();
       const { oauthUserData } = get();
-      
+
       const appUser: User = {
         uid: firebaseUser.uid,
         email: firebaseUser.email,
@@ -365,12 +417,12 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         age,
       };
 
-      set({ 
-        user: appUser, 
-        idToken, 
+      set({
+        user: appUser,
+        idToken,
         isNewOAuthUser: false,
         oauthUserData: null,
-        isLoading: false 
+        isLoading: false
       });
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Error al completar el registro';
@@ -385,13 +437,14 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   logout: async () => {
     set({ isLoading: true, error: null });
     try {
+      await apiClient.post("/api/v1/users/logout");
       await authService.logout();
-      set({ 
-        user: null, 
-        idToken: null, 
+      set({
+        user: null,
+        idToken: null,
         isNewOAuthUser: false,
         oauthUserData: null,
-        isLoading: false 
+        isLoading: false
       });
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Logout failed';
@@ -423,14 +476,14 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       const { idToken } = get();
       if (!idToken) throw new Error('No authenticated user');
-      
+
       // Call backend to change password
       await apiClient.patch('/api/v1/users/change-password', {
         currentPassword,
         password: newPassword,
         confirmPassword: newPassword,
       }, idToken || undefined);
-      
+
       set({ isLoading: false });
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Password update failed';
@@ -462,9 +515,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       }, idToken || undefined);
 
       // Update local state
-      set({ 
+      set({
         user: { ...user, displayName, email, age },
-        isLoading: false 
+        isLoading: false
       });
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Profile update failed';
@@ -481,21 +534,21 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       const { idToken } = get();
       if (!idToken) throw new Error('No authenticated user');
-      
+
       // Call backend to delete account
       await apiClient.delete('/api/v1/users/me', {
         password,
       }, idToken);
-      
+
       // Logout from Firebase
       await authService.logout();
-      
-      set({ 
-        user: null, 
+
+      set({
+        user: null,
         idToken: null,
         isNewOAuthUser: false,
-        oauthUserData: null, 
-        isLoading: false 
+        oauthUserData: null,
+        isLoading: false
       });
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Account deletion failed';

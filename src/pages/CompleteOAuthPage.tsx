@@ -16,7 +16,6 @@ export const CompleteOAuthPage: React.FC = () => {
   const [validationError, setValidationError] = useState('');
 
   useEffect(() => {
-    console.log('CompleteOAuthPage - oauthUserData:', oauthUserData);
     // Redirect if no OAuth data
     if (!oauthUserData) {
       console.log('No OAuth data, redirecting to login');
