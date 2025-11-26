@@ -32,7 +32,6 @@ export const DashboardPage: React.FC = () => {
   //   console.log('Creating new meeting with ID:', roomId);
   //   navigate(`/call/${roomId}`);
   // };
-
   const handleCreateMeeting = async () => {
     try {
       setLoading(true);
