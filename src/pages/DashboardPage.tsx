@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { data, useNavigate } from 'react-router';
+import { useNavigate } from 'react-router';
 import { Sidebar } from '../components/Sidebar';
 import { useAuthStore } from '../stores/useAuthStore';
 import { apiClient } from '../fetch/fetchClient';
@@ -130,10 +130,12 @@ export const DashboardPage: React.FC = () => {
             {/* Button */}
             <button
               onClick={handleCreateMeeting}
+              disabled={loading}
               className="w-full h-12 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white font-semibold rounded-xl transition-colors"
             >
-              Crear Reunión
+              {loading ? "Creando..." : "Crear Reunión"}
             </button>
+
           </div>
 
           {/* Join Meeting Card */}
@@ -164,11 +166,14 @@ export const DashboardPage: React.FC = () => {
               />
               <button
                 type="submit"
+                disabled={loading}
                 className="w-12 h-12 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-xl transition-colors flex items-center justify-center shrink-0"
               >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
+                {loading ? <span className="loader" /> : (
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                )}
               </button>
             </form>
           </div>

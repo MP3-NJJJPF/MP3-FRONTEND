@@ -1,4 +1,4 @@
-import React, { useState, useEffect, use } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { Sidebar } from '../components/Sidebar';
 import { LeaveCallModal } from '../components/LeaveCallModal';
@@ -57,12 +57,12 @@ export const CallRoomPage: React.FC = () => {
     videoUrl: '/assets/participant-placeholder.jpg',
   };
 
-  const participants = [
-    { id: 1, name: 'Camila Herrera', videoUrl: '/assets/participant-1.jpg' },
-    { id: 2, name: 'Alejandro Cas...', videoUrl: '/assets/participant-2.jpg' },
-    { id: 3, name: 'Daniela Torres', videoUrl: '/assets/participant-3.jpg' },
-    { id: 4, name: 'Sebastián Me...', videoUrl: '/assets/participant-4.jpg' },
-  ];
+  // const participants = [
+  //   { id: 1, name: 'Camila Herrera', videoUrl: '/assets/participant-1.jpg' },
+  //   { id: 2, name: 'Alejandro Cas...', videoUrl: '/assets/participant-2.jpg' },
+  //   { id: 3, name: 'Daniela Torres', videoUrl: '/assets/participant-3.jpg' },
+  //   { id: 4, name: 'Sebastián Me...', videoUrl: '/assets/participant-4.jpg' },
+  // ];
 
   const additionalParticipants = 5;
 

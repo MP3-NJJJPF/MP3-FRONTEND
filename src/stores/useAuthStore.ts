@@ -4,7 +4,6 @@ import { auth } from '../lib/firebase.config';
 import * as authService from '../services/auth.service';
 import { apiClient } from '../fetch/fetchClient';
 import type { LoginResponse, UserInfoResponse, OAuthResponse } from '../types/api.types';
-import { signInWithEmailAndPassword } from "firebase/auth";
 
 /**
  * User interface with application-specific data
