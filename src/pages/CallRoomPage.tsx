@@ -16,6 +16,7 @@ export const CallRoomPage: React.FC = () => {
   const navigate = useNavigate();
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessage, setChatMessage] = useState('');
+  const [messages, setMessages] = useState<{ userId: string; message: string; timestamp: string; isOwn: boolean; name?: string, photo?: string }[]>([]);
   const [isLeaveCallModalOpen, setIsLeaveCallModalOpen] = useState(false);
 
   const { user } = useAuthStore();
@@ -51,6 +52,28 @@ export const CallRoomPage: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    const handler = (msg: any) => {
+      setMessages(prev => [
+        ...prev,
+        {
+          userId: msg.userId,
+          message: msg.message,
+          timestamp: msg.timestamp,
+          isOwn: msg.userId === user?.uid,
+          name: msg.name,
+          photo: msg.photo,
+        }
+      ]);
+    };
+
+    socket.on("chat:message", handler);
+
+    return () => {
+      socket.off("chat:message", handler);
+    };
+  }, [user?.uid, user?.displayName]);
+
   // Mock data for participants
   const mainParticipant = {
     name: 'Valentina Rojas',
@@ -67,19 +90,34 @@ export const CallRoomPage: React.FC = () => {
   const additionalParticipants = 5;
 
   // Mock chat messages
-  const chatMessages = [
-    { id: 1, sender: 'Yo', time: '12:00 am', message: 'Buenos días a todos!', isOwn: true },
-    { id: 2, sender: 'Yo', time: '00:00 am', message: 'Como están?', isOwn: true },
-    { id: 3, sender: 'Alexandra', time: '12:04 am', message: 'Recien voy entrando, me ponen al día?', isOwn: false },
-  ];
+  // const chatMessages = [
+  //   { id: 1, sender: 'Yo', time: '12:00 am', message: 'Buenos días a todos!', isOwn: true },
+  //   { id: 2, sender: 'Yo', time: '00:00 am', message: 'Como están?', isOwn: true },
+  //   { id: 3, sender: 'Alexandra', time: '12:04 am', message: 'Recien voy entrando, me ponen al día?', isOwn: false },
+  // ];
+
+  // const handleSendMessage = (e: React.FormEvent) => {
+  //   e.preventDefault();
+  //   if (chatMessage.trim()) {
+  //     // TODO: Implement send message logic
+  //     console.log('Sending message:', chatMessage);
+  //     setChatMessage('');
+  //   }
+  // };
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (chatMessage.trim()) {
-      // TODO: Implement send message logic
-      console.log('Sending message:', chatMessage);
-      setChatMessage('');
-    }
+    if (!chatMessage.trim()) return;
+
+    socket.emit("chat:message", {
+      userId: user?.uid,
+      message: chatMessage,
+      timestamp: new Date().toISOString(),
+      name: user?.displayName,
+      photo: user?.photoURL,
+    });
+
+    setChatMessage('');
   };
 
   const handleLeaveCall = () => {
@@ -183,18 +221,22 @@ export const CallRoomPage: React.FC = () => {
 
               {/* Chat Messages */}
               <div className="flex-1 px-6 py-4 overflow-y-auto space-y-4">
-                {chatMessages.map((msg) => (
-                  <div key={msg.id} className={`flex flex-col ${msg.isOwn ? 'items-end' : 'items-start'}`}>
+                {messages.map((msg, index) => (
+                  <div key={index} className={`flex flex-col ${msg.isOwn ? 'items-end' : 'items-start'}`}>
                     <div className="flex items-center gap-2 mb-1">
                       {!msg.isOwn && (
-                        <div className="w-6 h-6 bg-(--color-primary) rounded-full flex items-center justify-center">
-                          <span className="text-xs text-white font-semibold">{msg.sender[0]}</span>
-                        </div>
+                        <img
+                          src={msg.photo || "/assets/profile-placeholder.jpg"}
+                          className="w-6 h-6 rounded-full object-cover"
+                          alt={msg.name}
+                        />
                       )}
+
                       <span className="text-xs text-gray-400">
-                        {msg.sender} {msg.time}
+                        {msg.isOwn ? 'Tú' : (msg.name || msg.userId)} – {new Date(msg.timestamp).toLocaleTimeString()}
                       </span>
                     </div>
+
                     <div className={`px-4 py-2 rounded-xl max-w-xs ${msg.isOwn ? 'bg-(--color-primary) text-white' : 'bg-(--color-input-bg) text-white'
                       }`}>
                       <p className="text-sm">{msg.message}</p>
