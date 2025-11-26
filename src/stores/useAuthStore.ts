@@ -50,6 +50,10 @@ interface AuthStore {
   deleteAccount: (password: string) => Promise<void>;
 }
 
+function hasCookie(name: string) {
+  return document.cookie.split("; ").some(c => c.startsWith(name + "="));
+}
+
 /**
  * Zustand store for authentication state management
  */
@@ -57,7 +61,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   // Initial state
   user: null,
   idToken: null,
-  isLoading: true,
+  isLoading: false,
   error: null,
   isNewOAuthUser: false,
   oauthUserData: null,
@@ -74,16 +78,19 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
    * Listens to authentication state changes and fetches user data from backend
    */
   initAuthObserver: () => {
-
     const unsubscribe = onAuthStateChanged(
       auth,
       async (fbUser: FirebaseUser | null) => {
 
-        if (fbUser) {
+        // Si el store está en medio de un login manual → NO ejecutar observer
+        if (get().isLoading) {
+          console.log("Observer ignorado porque loginWithGoogle está en progreso");
+          return;
+        }
 
+        if (fbUser) {
           // ✅ SET LOADING TRUE while fetching user data
           set({ isLoading: true });
-
           try {
             // Get Firebase ID token
             const idToken = await fbUser.getIdToken();
@@ -93,15 +100,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
               provider => provider.providerId === 'google.com' || provider.providerId === 'github.com'
             );
 
-
             // Try to get user data from backend using /users/me
             try {
-
-              const userData = await apiClient.get(
-                `/api/v1/users/me`,
-                isOAuthUser ? idToken : undefined
-              ) as unknown as UserInfoResponse;
-
+              const userData = await apiClient.get(`/api/v1/users/me`) as unknown as UserInfoResponse;
               const userInfo = userData.user;
 
               const user: User = {
@@ -139,8 +140,8 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             set({ error: errorMessage, isLoading: false });
           }
         } else {
-
-          try {
+          // SOLO intentar si existe cookie 'token'
+          if (hasCookie("token")) {
             // 1️⃣ Verificar si el token en cookie es válido
             await apiClient.get("/api/v1/users/check-token");
 
@@ -163,11 +164,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             });
 
             return;
-
-          } catch (err) {
-            console.log("Cookie no válida o expirada");
           }
-
           // 3️⃣ Si falla → limpiar estado
           set({
             user: null,
@@ -269,11 +266,13 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
       // Try to get user data from backend to check if they're registered
       try {
-        const response = await apiClient.post(`/api/v1/users/google`, {
-          email: user.email,
-          uid: user.uid,
-          displayName: user.displayName || user.email?.split('@')[0],
-        }, idToken) as unknown as OAuthResponse;
+        // const response = await apiClient.post(`/api/v1/users/google`, {
+        //   email: user.email,
+        //   uid: user.uid,
+        //   displayName: user.displayName || user.email?.split('@')[0],
+        // }, idToken) as unknown as OAuthResponse;
+
+        const response = await apiClient.post(`/api/v1/users/google`, {}, idToken) as unknown as OAuthResponse;
 
         // Check if user needs to complete profile
         if (response.status === "incomplete_profile") {
@@ -290,7 +289,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         }
 
         // User exists in backend with complete profile, fetch full user data
-        const userData = await apiClient.get(`/api/v1/users/me`, idToken) as unknown as UserInfoResponse;
+        const userData = await apiClient.get(`/api/v1/users/me`) as unknown as UserInfoResponse;
         const userInfo = userData.user;
 
         const appUser: User = {
@@ -324,7 +323,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         });
       }
     } catch (error: unknown) {
-      //   console.error('Google login error:', error);
+      console.error('Google login error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Error de inicio de sesión con Google';
       set({ error: errorMessage, isLoading: false });
       throw error;
@@ -363,7 +362,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         }
 
         // User exists in backend with complete profile, fetch full user data
-        const userData = await apiClient.get(`/api/v1/users/me`, idToken) as unknown as UserInfoResponse;
+        const userData = await apiClient.get(`/api/v1/users/me`) as unknown as UserInfoResponse;
         const userInfo = userData.user;
 
         const appUser: User = {
