@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { data, useNavigate } from 'react-router';
+import { useNavigate } from 'react-router';
 import { Sidebar } from '../components/Sidebar';
 import { useAuthStore } from '../stores/useAuthStore';
 import { apiClient } from '../fetch/fetchClient';
@@ -13,7 +13,7 @@ import { apiClient } from '../fetch/fetchClient';
 export const DashboardPage: React.FC = () => {
   const [meetingCode, setMeetingCode] = useState('');
   const { user } = useAuthStore();
-  const [loading, setLoading] = useState(false);
+  // const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   // Get first two words from displayName
