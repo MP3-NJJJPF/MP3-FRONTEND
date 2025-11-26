@@ -41,9 +41,6 @@ export const apiClient = {
         }
 
         const url = `${API_URL}${path}`;
-        console.log(`Making ${method} request to:`, url);
-        console.log('Headers:', headers);
-        console.log('Body:', body);
 
         // Make the HTTP request to the backend
         const response = await fetch(url, {
@@ -53,13 +50,10 @@ export const apiClient = {
             credentials: "include", // Include cookies for cross-origin requests
         });
 
-        console.log('Response status:', response.status, response.statusText);
-
         // Handle error responses (status codes outside 200-299 range)
         if (!response.ok) {
             // Try to parse error message from response, fallback to empty object
             const err = await response.json().catch(() => ({}));
-            console.log('Error response:', err);
             throw new Error(err.message || "Request failed");
         }
 
