@@ -13,7 +13,7 @@ import { apiClient } from '../fetch/fetchClient';
 export const DashboardPage: React.FC = () => {
   const [meetingCode, setMeetingCode] = useState('');
   const { user } = useAuthStore();
-  // const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   // Get first two words from displayName
@@ -32,6 +32,7 @@ export const DashboardPage: React.FC = () => {
   //   console.log('Creating new meeting with ID:', roomId);
   //   navigate(`/call/${roomId}`);
   // };
+
   const handleCreateMeeting = async () => {
     try {
       setLoading(true);
