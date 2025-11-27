@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Sidebar } from '../components/Sidebar';
 import { EditProfileModal } from '../components/EditProfileModal';
 import { ChangePasswordModal } from '../components/ChangePasswordModal';
@@ -13,7 +13,7 @@ import { useAuthStore } from '../stores/useAuthStore';
  * (change password, edit profile, delete account)
  */
 export const ProfilePage: React.FC = () => {
-  const { user: authUser, updateProfile, updatePassword, deleteAccount, isLoading } = useAuthStore();
+  const { user: authUser, authMethod, updateProfile, updatePassword, deleteAccount, isLoading } = useAuthStore();
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
@@ -21,35 +21,40 @@ export const ProfilePage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  
+  useEffect(() => {
+    console.log('Método de login:', authMethod);
+  }, [authMethod]);
+
 
   const handleChangePassword = () => {
     setIsChangePasswordModalOpen(true);
   };
 
   const handleSavePassword = async (data: { currentPassword: string; newPassword: string; confirmPassword: string }) => {
-    try {
-      setErrorMessage('');
-      setSuccessMessage('');
-      
-      // Validate passwords match
-      if (data.newPassword !== data.confirmPassword) {
-        setErrorMessage('Las contraseñas no coinciden');
-        return;
-      }
-      
-      await updatePassword(data.currentPassword, data.newPassword);
-      
-      setSuccessMessage('Contraseña actualizada exitosamente');
-      setIsChangePasswordModalOpen(false);
-      
-      // Clear success message after 3 seconds
-      setTimeout(() => setSuccessMessage(''), 3000);
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Error al cambiar la contraseña. Verifica tu contraseña actual.';
-      setErrorMessage(errorMessage);
+  try {
+    setErrorMessage('');
+    setSuccessMessage('');
+    
+    if (data.newPassword !== data.confirmPassword) {
+      setErrorMessage('Las contraseñas no coinciden');
+      return;
     }
-  };
+    
+    await updatePassword(data.currentPassword, data.newPassword);
+    
+    // ✅ Cerrar modal primero
+    setIsChangePasswordModalOpen(false);
+    
+    // ✅ Luego mostrar mensaje de éxito en la página principal
+    setSuccessMessage('Contraseña actualizada exitosamente');
+    setTimeout(() => setSuccessMessage(''), 3000);
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Error al cambiar la contraseña';
+    setErrorMessage(errorMessage);
+    // ❌ NO cerrar el modal aquí para que el usuario vea el error
+  }
+};
 
   const handleEditProfile = () => {
     setIsEditModalOpen(true);
@@ -161,16 +166,27 @@ export const ProfilePage: React.FC = () => {
 
           {/* Action Buttons */}
           <div className="space-y-3">
-            {/* Change Password Button */}
-            <button
-              onClick={handleChangePassword}
-              className="w-full h-12 flex items-center justify-center gap-2 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white font-semibold rounded-xl transition-colors"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-              </svg>
-              Cambiar Contraseña
-            </button>
+            
+            {authMethod === 'email' && (
+              <button
+                onClick={handleChangePassword}
+                className="w-full h-12 flex items-center justify-center gap-2 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white font-semibold rounded-xl transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                Cambiar Contraseña
+              </button>
+            )}
+
+            
+            {(authMethod === 'google' || authMethod === 'github') && (
+              <div className="w-full p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+                <p className="text-sm text-blue-400 text-center">
+                  Para cambiar tu contraseña, hazlo desde tu cuenta de {authMethod === 'google' ? 'Google' : 'GitHub'}
+                </p>
+              </div>
+            )}
 
             {/* Edit Profile Button */}
             <button

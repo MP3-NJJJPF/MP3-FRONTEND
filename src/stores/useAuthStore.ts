@@ -4,7 +4,6 @@ import { auth } from '../lib/firebase.config';
 import * as authService from '../services/auth.service';
 import { apiClient } from '../fetch/fetchClient';
 import type { LoginResponse, UserInfoResponse, OAuthResponse } from '../types/api.types';
-import { signInWithEmailAndPassword } from "firebase/auth";
 
 /**
  * User interface with application-specific data
@@ -27,6 +26,7 @@ interface AuthStore {
   idToken: string | null;
   isLoading: boolean;
   error: string | null;
+  authMethod: 'email' | 'google' | 'github' | null;
   isNewOAuthUser: boolean;
   oauthUserData: { displayName: string; email: string } | null;
 
@@ -58,6 +58,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   // Initial state
   user: null,
   idToken: null,
+  authMethod:null,
   isLoading: true,
   error: null,
   isNewOAuthUser: false,
@@ -82,12 +83,18 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
         if (fbUser) {
 
-          // ✅ SET LOADING TRUE while fetching user data
           set({ isLoading: true });
 
           try {
             // Get Firebase ID token
             const idToken = await fbUser.getIdToken();
+
+            const providers = fbUser.providerData.map(p => p.providerId);
+            let authMethod: 'email' | 'google' | 'github' | null = null;
+            
+            if (providers.includes('password')) authMethod = 'email';
+            else if (providers.includes('google.com')) authMethod = 'google';
+            else if (providers.includes('github.com')) authMethod = 'github';
 
             // Determine if user is OAuth or email/password
             const isOAuthUser = fbUser.providerData.some(
@@ -118,6 +125,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
               set({
                 user,
                 idToken: isOAuthUser ? idToken : null,
+                authMethod,
                 isLoading: false,
                 error: null
               });
@@ -133,7 +141,13 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
                 age: undefined,
               };
 
-              set({ user, idToken, isLoading: false, error: null });
+              set({ 
+                user, 
+                idToken, 
+                authMethod, 
+                isLoading: false, 
+                error: null 
+              });
             }
           } catch (error: unknown) {
             const errorMessage = error instanceof Error ? error.message : 'Authentication error';
@@ -142,10 +156,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         } else {
 
           try {
-            // 1️⃣ Verificar si el token en cookie es válido
+            
             await apiClient.get("/api/v1/users/check-token");
 
-            // 2️⃣ Si es válido → obtener los datos del usuario real desde /me
             const meResponse: any = await apiClient.get("/api/v1/users/me");
 
             const userInfo = meResponse.user;
@@ -158,6 +171,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
                 photoURL: "",
                 age: userInfo.age,
               },
+              authMethod: 'email', 
               isLoading: false,
               isNewOAuthUser: false,
               oauthUserData: null,
@@ -169,10 +183,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             console.log("Cookie no válida o expirada");
           }
 
-          // 3️⃣ Si falla → limpiar estado
+          
           set({
             user: null,
             idToken: null,
+            authMethod: null,
             isNewOAuthUser: false,
             oauthUserData: null,
             isLoading: false,
@@ -183,12 +198,25 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       (error) => {
         console.error('💥 Auth state change error:', error);
 
-        // ✅ SET LOADING FALSE on auth state error
         set({ error: error.message, isLoading: false });
       }
     );
 
     return unsubscribe;
+  },
+
+  /**
+   * Get current authentication method
+   */
+  getAuthMethod: () => {
+    const fbUser = auth.currentUser;
+    if (!fbUser) return null;
+    
+    const providers = fbUser.providerData.map(p => p.providerId);
+    if (providers.includes('password')) return 'email';
+    if (providers.includes('google.com')) return 'google';
+    if (providers.includes('github.com')) return 'github';
+    return null;
   },
 
   /**
@@ -216,6 +244,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       // 3. Guardar usuario en Zustand
       set({
         user: appUser,
+        authMethod: 'email',
         idToken: null, // porque el login manual NO usa Firebase
         isNewOAuthUser: false,
         oauthUserData: null,
@@ -280,6 +309,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         if (response.status === "incomplete_profile") {
           set({
             isNewOAuthUser: true,
+            authMethod: 'google',
             oauthUserData: {
               displayName: user.displayName || '',
               email: user.email || '',
@@ -353,6 +383,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         if (response.status === "incomplete_profile") {
           set({
             isNewOAuthUser: true,
+            authMethod: 'github',
             oauthUserData: {
               displayName: user.displayName || '',
               email: user.email || '',
@@ -474,21 +505,26 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   updatePassword: async (currentPassword: string, newPassword: string) => {
     set({ isLoading: true, error: null });
     try {
-      const { idToken } = get();
-      if (!idToken) throw new Error('No authenticated user');
+      const { authMethod } = get();
+      
+      if (authMethod !== 'email') {
+        throw new Error('El cambio de contraseña solo está disponible para cuentas con email y contraseña. Las cuentas de Google y GitHub deben cambiar su contraseña en la plataforma correspondiente.');
+      }
 
-      // Call backend to change password
+      
       await apiClient.patch('/api/v1/users/change-password', {
         currentPassword,
         password: newPassword,
         confirmPassword: newPassword,
-      }, idToken || undefined);
+      });
 
       set({ isLoading: false });
+      
+      
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Password update failed';
       set({ error: errorMessage, isLoading: false });
-      throw error;
+      throw error; 
     }
   },
 
