@@ -51,10 +51,6 @@ interface AuthStore {
   deleteAccount: (password: string) => Promise<void>;
 }
 
-function hasCookie(name: string) {
-  return document.cookie.split("; ").some(c => c.startsWith(name + "="));
-}
-
 /**
  * Zustand store for authentication state management
  */
@@ -154,10 +150,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             set({ error: errorMessage, isLoading: false });
           }
         } else {
-
-          try {
-            
-            await apiClient.get("/api/v1/users/check-token");
+          // SOLO intentar si existe cookie 'token'
+          //if (hasCookie("token")) {
+          if (await apiClient.get("/api/v1/users/check-token")) {
+            // 1️⃣ Verificar si el token en cookie es válido
+            //await apiClient.get("/api/v1/users/check-token");
 
             const meResponse: any = await apiClient.get("/api/v1/users/me");
 
@@ -165,7 +162,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
             set({
               user: {
-                uid: userInfo.uid,
+                uid: userInfo.id,
                 email: userInfo.email,
                 displayName: userInfo.firstName + " " + (userInfo.lastName || ""),
                 photoURL: "",
@@ -244,7 +241,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         authMethod: 'email',
         idToken: null, // porque el login manual NO usa Firebase
         isNewOAuthUser: false,
-        oauthUserData: null,
+        //oauthUserData: null,
+        oauthUserData: {
+          displayName: appUser.displayName || '',
+          email: appUser.email || '',
+        },
         isLoading: false,
       });
 
