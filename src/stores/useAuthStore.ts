@@ -513,12 +513,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   deleteAccount: async (password: string) => {
     set({ isLoading: true, error: null });
     try {
-      const { idToken } = get();
-      if (!idToken) throw new Error('No authenticated user');
-
-      await apiClient.delete('/api/v1/users/me', {
+      const result =await apiClient.delete('/api/v1/users/me', {
         password,
-      }, idToken);
+      });
 
       await authService.logout();
 
