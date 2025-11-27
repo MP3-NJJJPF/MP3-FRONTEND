@@ -6,7 +6,7 @@ const CompleteProfile = () => {
   const { state } = useLocation();
   const navigate = useNavigate();
 
-  const { email, googleUid, name, idToken } = state || {};
+  const { email, name, idToken } = state || {};
 
   const [form, setForm] = useState({
     name: name || "",
