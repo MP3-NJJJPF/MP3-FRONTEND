@@ -513,7 +513,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   deleteAccount: async (password: string) => {
     set({ isLoading: true, error: null });
     try {
-      const result =await apiClient.delete('/api/v1/users/me', {
+      await apiClient.delete('/api/v1/users/me', {
         password,
       });
 
