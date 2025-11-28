@@ -46,3 +46,39 @@ html, body, #root {
 ::-webkit-scrollbar-button {
   display: none;
 }
+
+/* Focus Visible Styles for Accessibility */
+*:focus-visible {
+  outline: 2px solid #4F46E5;
+  outline-offset: 2px;
+}
+
+/* Skip to main content link (for keyboard navigation) */
+.skip-to-main {
+  position: absolute;
+  left: -9999px;
+  z-index: 999;
+  padding: 1rem 1.5rem;
+  background-color: #4F46E5;
+  color: white;
+  text-decoration: none;
+  border-radius: 0.5rem;
+}
+
+.skip-to-main:focus {
+  left: 1rem;
+  top: 1rem;
+}
+
+/* Screen reader only text */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
