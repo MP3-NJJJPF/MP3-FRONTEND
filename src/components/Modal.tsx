@@ -28,15 +28,29 @@ interface ModalProps {
 export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, children, ariaLabel = "Diálogo modal" }) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const isInitialMount = useRef(true);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      isInitialMount.current = true;
+      return;
+    }
 
-    // Save the currently focused element
-    previousFocusRef.current = document.activeElement as HTMLElement;
-
-    // Focus the modal
-    modalRef.current?.focus();
+    // Only save focus and focus modal on initial open
+    if (isInitialMount.current) {
+      // Save the currently focused element
+      previousFocusRef.current = document.activeElement as HTMLElement;
+      
+      // Focus the modal container (but not force focus away from inputs)
+      // We use a small timeout to allow the modal to render first
+      setTimeout(() => {
+        if (modalRef.current && !modalRef.current.contains(document.activeElement)) {
+          modalRef.current.focus();
+        }
+      }, 0);
+      
+      isInitialMount.current = false;
+    }
 
     // Handle Escape key to close modal
     const handleEscape = (e: KeyboardEvent) => {
@@ -77,8 +91,11 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, children, ariaLab
     return () => {
       document.removeEventListener('keydown', handleEscape);
       document.removeEventListener('keydown', handleTabKey);
-      // Restore focus to previous element
-      previousFocusRef.current?.focus();
+      
+      // Restore focus to previous element only when closing
+      if (!isOpen && previousFocusRef.current) {
+        previousFocusRef.current.focus();
+      }
     };
   }, [isOpen, onClose]);
 
