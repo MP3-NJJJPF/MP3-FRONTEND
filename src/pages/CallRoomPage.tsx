@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { Sidebar } from '../components/Sidebar';
 import { LeaveCallModal } from '../components/LeaveCallModal';
@@ -18,8 +18,27 @@ export const CallRoomPage: React.FC = () => {
   const [chatMessage, setChatMessage] = useState('');
   const [messages, setMessages] = useState<{ userId: string; message: string; timestamp: string; isOwn: boolean; name?: string, photo?: string }[]>([]);
   const [isLeaveCallModalOpen, setIsLeaveCallModalOpen] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const { user } = useAuthStore();
+
+  // Auto-scroll to bottom when new messages arrive
+  const scrollToBottom = () => {
+    if (messagesContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+      
+      if (isNearBottom) {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  };
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
   useEffect(() => {
     if (!user || !roomId) return;
@@ -74,37 +93,6 @@ export const CallRoomPage: React.FC = () => {
     };
   }, [user?.uid, user?.displayName]);
 
-  // Mock data for participants
-  const mainParticipant = {
-    name: 'Valentina Rojas',
-    videoUrl: '/assets/participant-placeholder.jpg',
-  };
-
-  // const participants = [
-  //   { id: 1, name: 'Camila Herrera', videoUrl: '/assets/participant-1.jpg' },
-  //   { id: 2, name: 'Alejandro Cas...', videoUrl: '/assets/participant-2.jpg' },
-  //   { id: 3, name: 'Daniela Torres', videoUrl: '/assets/participant-3.jpg' },
-  //   { id: 4, name: 'Sebastián Me...', videoUrl: '/assets/participant-4.jpg' },
-  // ];
-
-  const additionalParticipants = 5;
-
-  // Mock chat messages
-  // const chatMessages = [
-  //   { id: 1, sender: 'Yo', time: '12:00 am', message: 'Buenos días a todos!', isOwn: true },
-  //   { id: 2, sender: 'Yo', time: '00:00 am', message: 'Como están?', isOwn: true },
-  //   { id: 3, sender: 'Alexandra', time: '12:04 am', message: 'Recien voy entrando, me ponen al día?', isOwn: false },
-  // ];
-
-  // const handleSendMessage = (e: React.FormEvent) => {
-  //   e.preventDefault();
-  //   if (chatMessage.trim()) {
-  //     // TODO: Implement send message logic
-  //     console.log('Sending message:', chatMessage);
-  //     setChatMessage('');
-  //   }
-  // };
-
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatMessage.trim()) return;
@@ -131,146 +119,343 @@ export const CallRoomPage: React.FC = () => {
     navigate('/dashboard');
   };
 
+  // Calculate participants to display
+  const totalParticipants = onlineUsers.length;
+  const maxVisibleParticipants = 4;
+  const visibleParticipants = onlineUsers.slice(0, maxVisibleParticipants);
+  const remainingParticipants = Math.max(0, totalParticipants - maxVisibleParticipants);
+  const showMoreButton = totalParticipants > 5;
+
+  // Truncate participant name
+  const truncateName = (name: string, maxLength: number = 15) => {
+    if (name.length <= maxLength) return name;
+    return name.substring(0, maxLength) + '...';
+  };
+
   return (
-    <div className="min-h-screen bg-(--color-background) flex flex-row">
-      {/* Sidebar */}
-      <Sidebar />
+    <div className="h-screen bg-(--color-background) flex flex-row overflow-hidden">
+      {/* Sidebar - Hidden on mobile during call */}
+      <div className="hidden md:flex">
+        <Sidebar />
+      </div>
 
       {/* Main Content - Call Room */}
-      <main className="flex-1 flex flex-col pb-32 md:pb-0">
+      <main className="flex-1 flex flex-col pb-20 md:pb-0 min-h-0">
         {/* Header */}
-        <header className="px-6 py-4 flex items-center gap-2">
+        <header className="px-4 md:px-6 py-4 flex items-center gap-2 shrink-0">
           <h1 className="text-xl font-semibold text-white">Sala</h1>
           <span className="text-xl font-semibold text-gray-400">#{roomId || '1234568'}</span>
         </header>
 
-        {/* Video Area */}
-        <div className="flex-1 flex flex-row gap-4 px-6 overflow-hidden">
+        {/* Video Area - Different layouts for mobile/tablet/desktop */}
+        <div className="flex-1 flex flex-col lg:flex-row gap-4 px-4 md:px-6 overflow-hidden min-h-0">
           {/* Main Video + Participants */}
-          <div className={`flex flex-col gap-4 transition-all ${isChatOpen ? 'flex-1' : 'flex-1'}`}>
-            {/* Main Video Feed */}
-            <div className="flex-1 relative bg-(--color-container) rounded-2xl overflow-hidden">
-              {/* Video Placeholder */}
-              <img
-                src={mainParticipant.videoUrl}
-                alt={mainParticipant.name}
-                className="w-full h-full object-cover"
-              />
+          <div className={`flex flex-col gap-4 transition-all min-h-0 ${isChatOpen ? 'hidden md:flex flex-1' : 'flex-1'}`}>
+            {/* Main Video Feed - Only show if there are participants */}
+            {totalParticipants > 0 && (
+              <div className="flex-1 relative bg-(--color-container) rounded-2xl overflow-hidden min-h-0">
+                {/* Video Placeholder */}
+                <img
+                  src={onlineUsers[0]?.photo || "/assets/profile-placeholder.jpg"}
+                  alt={onlineUsers[0]?.name || "Usuario"}
+                  className="w-full h-full object-cover"
+                />
 
-              {/* Participant Name Badge */}
-              <div className="absolute bottom-4 left-4 px-4 py-2 bg-black/60 rounded-full">
-                <span className="text-sm font-medium text-white">{mainParticipant.name}</span>
-              </div>
-            </div>
-
-            {/* Participants Gallery */}
-            <div className="flex items-center gap-3 pb-4">
-              {/* {participants.map((participant) => (
-                <div
-                  key={participant.id}
-                  className="relative w-40 h-28 bg-(--color-container) rounded-xl overflow-hidden shrink-0"
-                >
-                  <img
-                    src={participant.videoUrl}
-                    alt={participant.name}
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/60 rounded-full">
-                    <span className="text-xs font-medium text-white">{participant.name}</span>
-                  </div>
-                </div>
-              ))} */}
-
-              {onlineUsers.map((u) => (
-                <div
-                  key={u.socketId}   // llave correcta
-                  className="relative w-40 h-28 bg-(--color-container) rounded-xl overflow-hidden shrink-0"
-                >
-                  <img
-                    src={u.photo || "/assets/profile-placeholder.jpg"}
-                    alt={u.name || "Usuario"}
-                    className="w-full h-full object-cover"
-                  />
-
-                  <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/60 rounded-full">
-                    <span className="text-xs font-medium text-white">{u.name}</span>
-                  </div>
-                </div>
-              ))}
-
-              {/* More Participants Button */}
-              <button className="w-40 h-28 bg-(--color-container) rounded-xl flex flex-col items-center justify-center gap-2 shrink-0 hover:bg-(--color-container)/80 transition-colors">
-                <div className="w-12 h-12 bg-(--color-primary) rounded-full flex items-center justify-center">
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                </div>
-                <span className="text-xs text-white font-medium">{additionalParticipants} Participantes mas</span>
-                <span className="text-xs text-gray-400">Ver todos</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Chat Sidebar */}
-          {isChatOpen && (
-            <div className="w-80 bg-(--color-container) rounded-2xl flex flex-col shrink-0">
-              {/* Chat Header */}
-              <div className="px-6 py-4 border-b border-(--color-border)">
-                <h2 className="text-lg font-semibold text-white">Chat</h2>
-              </div>
-
-              {/* Chat Messages */}
-              <div className="flex-1 px-6 py-4 overflow-y-auto space-y-4">
-                {messages.map((msg, index) => (
-                  <div key={index} className={`flex flex-col ${msg.isOwn ? 'items-end' : 'items-start'}`}>
-                    <div className="flex items-center gap-2 mb-1">
-                      {!msg.isOwn && (
-                        <img
-                          src={msg.photo || "/assets/profile-placeholder.jpg"}
-                          className="w-6 h-6 rounded-full object-cover"
-                          alt={msg.name}
-                        />
-                      )}
-
-                      <span className="text-xs text-gray-400">
-                        {msg.isOwn ? 'Tú' : (msg.name || msg.userId)} – {new Date(msg.timestamp).toLocaleTimeString()}
+                {/* Current User in Picture-in-Picture (Mobile Only) */}
+                {user && (
+                  <div className="md:hidden absolute bottom-4 right-4 w-24 h-32 bg-(--color-container) rounded-xl overflow-hidden border-2 border-(--color-primary)">
+                    <img
+                      src={user.photoURL || "/assets/profile-placeholder.jpg"}
+                      alt={user.displayName || "Yo"}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute bottom-1 left-1 right-1 px-2 py-1 bg-black/60 rounded-full">
+                      <span className="text-xs font-medium text-white truncate block text-center">
+                        Yo
                       </span>
                     </div>
+                  </div>
+                )}
 
-                    <div className={`px-4 py-2 rounded-xl max-w-xs ${msg.isOwn ? 'bg-(--color-primary) text-white' : 'bg-(--color-input-bg) text-white'
-                      }`}>
-                      <p className="text-sm">{msg.message}</p>
+                {/* Participant Name Badge */}
+                <div className="absolute bottom-4 left-4 px-4 py-2 bg-black/60 rounded-full">
+                  <span className="text-sm font-medium text-white">
+                    {truncateName(onlineUsers[0]?.name || "Usuario")}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Participants Gallery - Hidden on mobile, shown on tablet/desktop */}
+            {totalParticipants > 1 && (
+              <div className="hidden md:flex items-center gap-3 pb-4 overflow-x-auto shrink-0">
+                {/* Show participants from index 1 onwards (excluding the main one) */}
+                {visibleParticipants.slice(1).map((u) => (
+                  <div
+                    key={u.socketId}
+                    className="relative w-40 h-28 bg-(--color-container) rounded-xl overflow-hidden shrink-0"
+                  >
+                    <img
+                      src={u.photo || "/assets/profile-placeholder.jpg"}
+                      alt={u.name || "Usuario"}
+                      className="w-full h-full object-cover"
+                    />
+
+                    <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/60 rounded-full max-w-[calc(100%-1rem)]">
+                      <span className="text-xs font-medium text-white truncate block">
+                        {truncateName(u.name || "Usuario", 12)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+
+                {/* More Participants Button - Only show when there are more than 5 participants */}
+                {showMoreButton && (
+                  <button className="w-40 h-28 bg-(--color-container) rounded-xl flex flex-col items-center justify-center gap-2 shrink-0 hover:bg-(--color-container)/80 transition-colors">
+                    <div className="w-12 h-12 bg-(--color-primary) rounded-full flex items-center justify-center">
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                    </div>
+                    <span className="text-xs text-white font-medium">{remainingParticipants} Participantes más</span>
+                    <span className="text-xs text-gray-400">Ver todos</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Mobile: Scrollable Participants List - Only when chat is closed */}
+            {totalParticipants > 1 && !isChatOpen && (
+              <div className="md:hidden shrink-0 max-h-48 overflow-y-auto space-y-3 pb-4"
+                style={{
+                  scrollbarWidth: 'thin',
+                  scrollbarColor: 'rgba(251, 251, 251, 0.7) transparent',
+                }}
+              >
+                {onlineUsers.slice(1).map((u) => (
+                  <div
+                    key={u.socketId}
+                    className="relative h-32 bg-(--color-container) rounded-xl overflow-hidden"
+                  >
+                    <img
+                      src={u.photo || "/assets/profile-placeholder.jpg"}
+                      alt={u.name || "Usuario"}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute bottom-2 left-2 px-3 py-1 bg-black/60 rounded-full">
+                      <span className="text-sm font-medium text-white">
+                        {truncateName(u.name || "Usuario", 20)}
+                      </span>
                     </div>
                   </div>
                 ))}
               </div>
+            )}
+          </div>
 
-              {/* Chat Input */}
-              <form onSubmit={handleSendMessage} className="px-4 py-4 border-t border-(--color-border)">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Escribe un mensaje . . ."
-                    value={chatMessage}
-                    onChange={(e) => setChatMessage(e.target.value)}
-                    className="flex-1 h-10 px-4 bg-(--color-input-bg) text-white text-sm rounded-xl border border-(--color-border) focus:outline-none focus:border-(--color-primary) transition-colors placeholder:text-gray-500"
-                  />
+          {/* Chat Sidebar - Desktop: side panel, Tablet: bottom panel, Mobile: fullscreen overlay */}
+          {isChatOpen && (
+            <>
+              {/* Tablet Chat - Bottom Panel */}
+              <div className="hidden md:flex lg:hidden w-full h-64 bg-(--color-container) rounded-2xl flex-col shrink-0">
+                {/* Chat Header */}
+                <div className="px-6 py-4 border-b border-(--color-border) shrink-0">
+                  <h2 className="text-lg font-semibold text-white">Chat</h2>
+                </div>
+
+                {/* Chat Messages */}
+                <div 
+                  ref={messagesContainerRef}
+                  className="flex-1 px-6 py-4 overflow-y-auto space-y-4 min-h-0"
+                  style={{
+                    scrollbarWidth: 'thin',
+                    scrollbarColor: 'rgba(251, 251, 251, 0.7) transparent',
+                  }}
+                >
+                  {messages.map((msg, index) => (
+                    <div key={index} className={`flex flex-col ${msg.isOwn ? 'items-end' : 'items-start'}`}>
+                      <div className="flex items-center gap-2 mb-1">
+                        {!msg.isOwn && (
+                          <img
+                            src={msg.photo || "/assets/profile-placeholder.jpg"}
+                            className="w-6 h-6 rounded-full object-cover"
+                            alt={msg.name}
+                          />
+                        )}
+
+                        <span className="text-xs text-gray-400">
+                          {msg.isOwn ? 'Tú' : truncateName(msg.name || msg.userId, 15)} – {new Date(msg.timestamp).toLocaleTimeString()}
+                        </span>
+                      </div>
+
+                      <div className={`px-4 py-2 rounded-xl max-w-xs wrap-break-word ${msg.isOwn ? 'bg-(--color-primary) text-white' : 'bg-(--color-input-bg) text-white'
+                        }`}>
+                        <p className="text-sm">{msg.message}</p>
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Chat Input */}
+                <form onSubmit={handleSendMessage} className="px-4 py-4 border-t border-(--color-border) shrink-0">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Escribe un mensaje . . ."
+                      value={chatMessage}
+                      onChange={(e) => setChatMessage(e.target.value)}
+                      className="flex-1 h-10 px-4 bg-(--color-input-bg) text-white text-sm rounded-xl border border-(--color-border) focus:outline-none focus:border-(--color-primary) transition-colors placeholder:text-gray-500"
+                    />
+                    <button
+                      type="submit"
+                      className="w-10 h-10 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-xl transition-colors flex items-center justify-center shrink-0"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Desktop Chat - Side Panel */}
+              <div className="hidden lg:flex w-80 h-full bg-(--color-container) rounded-2xl flex-col shrink-0">
+                {/* Chat Header */}
+                <div className="px-6 py-4 border-b border-(--color-border) shrink-0">
+                  <h2 className="text-lg font-semibold text-white">Chat</h2>
+                </div>
+
+                {/* Chat Messages */}
+                <div 
+                  className="flex-1 px-6 py-4 overflow-y-auto space-y-4 min-h-0"
+                  style={{
+                    scrollbarWidth: 'thin',
+                    scrollbarColor: 'rgba(251, 251, 251, 0.7) transparent',
+                  }}
+                >
+                  {messages.map((msg, index) => (
+                    <div key={index} className={`flex flex-col ${msg.isOwn ? 'items-end' : 'items-start'}`}>
+                      <div className="flex items-center gap-2 mb-1">
+                        {!msg.isOwn && (
+                          <img
+                            src={msg.photo || "/assets/profile-placeholder.jpg"}
+                            className="w-6 h-6 rounded-full object-cover"
+                            alt={msg.name}
+                          />
+                        )}
+
+                        <span className="text-xs text-gray-400">
+                          {msg.isOwn ? 'Tú' : truncateName(msg.name || msg.userId, 15)} – {new Date(msg.timestamp).toLocaleTimeString()}
+                        </span>
+                      </div>
+
+                      <div className={`px-4 py-2 rounded-xl max-w-xs wrap-break-word ${msg.isOwn ? 'bg-(--color-primary) text-white' : 'bg-(--color-input-bg) text-white'
+                        }`}>
+                        <p className="text-sm">{msg.message}</p>
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Chat Input */}
+                <form onSubmit={handleSendMessage} className="px-4 py-4 border-t border-(--color-border) shrink-0">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Escribe un mensaje . . ."
+                      value={chatMessage}
+                      onChange={(e) => setChatMessage(e.target.value)}
+                      className="flex-1 h-10 px-4 bg-(--color-input-bg) text-white text-sm rounded-xl border border-(--color-border) focus:outline-none focus:border-(--color-primary) transition-colors placeholder:text-gray-500"
+                    />
+                    <button
+                      type="submit"
+                      className="w-10 h-10 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-xl transition-colors flex items-center justify-center shrink-0"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Mobile Chat - Fullscreen Overlay */}
+              <div className="md:hidden fixed inset-0 z-40 bg-(--color-background) flex flex-col pb-20">
+                {/* Chat Header with Close Button */}
+                <div className="px-4 py-4 border-b border-(--color-border) shrink-0 flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-white">Chat</h2>
                   <button
-                    type="submit"
-                    className="w-10 h-10 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-xl transition-colors flex items-center justify-center shrink-0"
+                    onClick={() => setIsChatOpen(false)}
+                    className="p-2 text-gray-400 hover:text-white transition-colors"
                   >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 </div>
-              </form>
-            </div>
+
+                {/* Chat Messages */}
+                <div 
+                  className="flex-1 px-4 py-4 overflow-y-auto space-y-4 min-h-0"
+                  style={{
+                    scrollbarWidth: 'thin',
+                    scrollbarColor: 'rgba(251, 251, 251, 0.7) transparent',
+                  }}
+                >
+                  {messages.map((msg, index) => (
+                    <div key={index} className={`flex flex-col ${msg.isOwn ? 'items-end' : 'items-start'}`}>
+                      <div className="flex items-center gap-2 mb-1">
+                        {!msg.isOwn && (
+                          <img
+                            src={msg.photo || "/assets/profile-placeholder.jpg"}
+                            className="w-6 h-6 rounded-full object-cover"
+                            alt={msg.name}
+                          />
+                        )}
+
+                        <span className="text-xs text-gray-400">
+                          {msg.isOwn ? 'Tú' : truncateName(msg.name || msg.userId, 15)} – {new Date(msg.timestamp).toLocaleTimeString()}
+                        </span>
+                      </div>
+
+                      <div className={`px-4 py-2 rounded-xl max-w-xs wrap-break-word ${msg.isOwn ? 'bg-(--color-primary) text-white' : 'bg-(--color-input-bg) text-white'
+                        }`}>
+                        <p className="text-sm">{msg.message}</p>
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Chat Input */}
+                <form onSubmit={handleSendMessage} className="px-4 py-4 border-t border-(--color-border) shrink-0">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Escribe un mensaje . . ."
+                      value={chatMessage}
+                      onChange={(e) => setChatMessage(e.target.value)}
+                      className="flex-1 h-10 px-4 bg-(--color-input-bg) text-white text-sm rounded-xl border border-(--color-border) focus:outline-none focus:border-(--color-primary) transition-colors placeholder:text-gray-500"
+                    />
+                    <button
+                      type="submit"
+                      className="w-10 h-10 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-xl transition-colors flex items-center justify-center shrink-0"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </>
           )}
         </div>
 
-        {/* Call Controls */}
-        <div className="px-6 py-6 flex items-center justify-center gap-4">
+        {/* Call Controls - Fixed at bottom, always visible */}
+        <div className="fixed md:relative bottom-0 left-0 right-0 px-4 md:px-6 py-4 md:py-6 bg-(--color-background) md:bg-transparent flex items-center justify-center gap-4 z-50">
           {/* Microphone */}
           <button className="w-12 h-12 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-full transition-colors flex items-center justify-center">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -295,7 +480,6 @@ export const CallRoomPage: React.FC = () => {
             </svg>
           </button>
 
-          {/* End Call */}
           {/* End Call */}
           <button
             onClick={handleLeaveCall}
