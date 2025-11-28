@@ -10,6 +10,9 @@ interface ChangePasswordModalProps {
    * Function to close the modal
    */
   onClose: () => void;
+
+
+  authMethod: 'email' | 'google' | 'github' | null;
   /**
    * Function to handle password change
    */
@@ -25,6 +28,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   isOpen,
   onClose,
   onSave,
+  authMethod,
 }) => {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -47,6 +51,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
     setConfirmPassword('');
   };
 
+
   return (
     <Modal isOpen={isOpen} onClose={onClose}>
       <form onSubmit={handleSubmit} className="p-6 md:p-8">
@@ -58,7 +63,8 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
         {/* Form Fields */}
         <div className="space-y-4 mb-6">
           {/* Current Password */}
-          <div>
+          {authMethod === 'email' && (
+            <div>
             <label htmlFor="currentPassword" className="block text-xs md:text-sm text-white font-medium mb-2">
               Contraseña Actual
             </label>
@@ -72,6 +78,10 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               required
             />
           </div>
+          )
+          
+          }
+          
 
           {/* New Password */}
           <div>

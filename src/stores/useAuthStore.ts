@@ -83,7 +83,6 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
         try {
           if (fbUser) {
-            // ✅ Usuario autenticado con Firebase
             const idToken = await fbUser.getIdToken();
 
             const providers = fbUser.providerData.map(p => p.providerId);
@@ -223,7 +222,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         isLoading: false,
       });
     } catch (error: any) {
-      const message = error?.response?.data?.message || "Login failed";
+      const message = error?.response?.data?.message || "Correo o contraseña incorrectos.";
       set({ error: message, isLoading: false });
       throw new Error(message);
     }
@@ -458,8 +457,14 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       const { authMethod } = get();
 
-      if (authMethod !== 'email') {
-        throw new Error('El cambio de contraseña solo está disponible para cuentas con email y contraseña. Las cuentas de Google y GitHub deben cambiar su contraseña en la plataforma correspondiente.');
+      // cambiar la contraseña si el authMethod es 'google' o 'github'
+      if (authMethod === 'google' || authMethod === 'github') {
+        // cambiamos la contrasela desde firebase
+        await apiClient.patch('/api/v1/users/change-password-google-github', {
+          password: newPassword,
+          authMethod: authMethod,
+        });
+        return;
       }
 
       await apiClient.patch('/api/v1/users/change-password', {
@@ -511,10 +516,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
    * Delete user account
    */
   deleteAccount: async (password: string) => {
-    set({ isLoading: true, error: null });
+    set({ isLoading: false, error: null });
     try {
       await apiClient.delete('/api/v1/users/me', {
         password,
+        authMethod: get().authMethod,
       });
 
       await authService.logout();
