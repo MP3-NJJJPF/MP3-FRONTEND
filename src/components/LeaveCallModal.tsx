@@ -23,10 +23,10 @@ interface LeaveCallModalProps {
  */
 export const LeaveCallModal: React.FC<LeaveCallModalProps> = ({ isOpen, onClose, onConfirm }) => {
   return (
-    <Modal isOpen={isOpen} onClose={onClose}>
+    <Modal isOpen={isOpen} onClose={onClose} ariaLabel="Confirmación para salir de la llamada">
       <div className="p-6 md:p-8">
         {/* Title */}
-        <h2 className="text-xl md:text-2xl font-bold text-white text-center mb-6">
+        <h2 className="text-xl md:text-2xl font-bold text-white text-center mb-6" id="leave-call-modal-title">
           ¿Quieres salir de la llamada?
         </h2>
 
@@ -35,7 +35,8 @@ export const LeaveCallModal: React.FC<LeaveCallModalProps> = ({ isOpen, onClose,
           {/* Confirm Button */}
           <button
             onClick={onConfirm}
-            className="w-full h-10 md:h-12 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white font-semibold rounded-xl transition-colors"
+            className="w-full h-10 md:h-12 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white font-semibold rounded-xl transition-colors focus:outline-none focus:ring-2 focus:ring-(--color-primary) focus:ring-offset-2 focus:ring-offset-(--color-container)"
+            aria-label="Confirmar y colgar la llamada"
           >
             Colgar llamada
           </button>
@@ -43,7 +44,8 @@ export const LeaveCallModal: React.FC<LeaveCallModalProps> = ({ isOpen, onClose,
           {/* Cancel Button */}
           <button
             onClick={onClose}
-            className="w-full h-10 md:h-12 bg-(--color-error) hover:bg-(--color-error)/80 text-white font-semibold rounded-xl transition-colors"
+            className="w-full h-10 md:h-12 bg-(--color-error) hover:bg-(--color-error)/80 text-white font-semibold rounded-xl transition-colors focus:outline-none focus:ring-2 focus:ring-(--color-error) focus:ring-offset-2 focus:ring-offset-(--color-container)"
+            aria-label="Cancelar y permanecer en la llamada"
           >
             Cancelar
           </button>

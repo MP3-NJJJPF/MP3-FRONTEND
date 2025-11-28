@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { Sidebar } from '../components/Sidebar';
 import { LeaveCallModal } from '../components/LeaveCallModal';
@@ -18,24 +18,21 @@ export const CallRoomPage: React.FC = () => {
   const [chatMessage, setChatMessage] = useState('');
   const [messages, setMessages] = useState<{ userId: string; message: string; timestamp: string; isOwn: boolean; name?: string, photo?: string }[]>([]);
   const [isLeaveCallModalOpen, setIsLeaveCallModalOpen] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const { user } = useAuthStore();
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom - Always scroll when user sends a message
   const scrollToBottom = () => {
-    if (messagesContainerRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
-      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
-      
-      if (isNearBottom) {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }
-    }
+    setTimeout(() => {
+      // Find all message end markers and scroll them
+      const messagesEndElements = document.querySelectorAll('[data-messages-end]');
+      messagesEndElements.forEach((element) => {
+        element.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      });
+    }, 100);
   };
 
-  // Scroll to bottom when messages change
+  // Always scroll to bottom when messages change
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
@@ -265,21 +262,28 @@ export const CallRoomPage: React.FC = () => {
 
                 {/* Chat Messages */}
                 <div 
-                  ref={messagesContainerRef}
                   className="flex-1 px-6 py-4 overflow-y-auto space-y-4 min-h-0"
+                  role="log"
+                  aria-label="Mensajes del chat"
+                  aria-live="polite"
                   style={{
                     scrollbarWidth: 'thin',
                     scrollbarColor: 'rgba(251, 251, 251, 0.7) transparent',
                   }}
                 >
                   {messages.map((msg, index) => (
-                    <div key={index} className={`flex flex-col ${msg.isOwn ? 'items-end' : 'items-start'}`}>
+                    <div 
+                      key={index} 
+                      className={`flex flex-col ${msg.isOwn ? 'items-end' : 'items-start'}`}
+                      role="article"
+                      aria-label={`Mensaje de ${msg.isOwn ? 'ti' : msg.name || msg.userId}`}
+                    >
                       <div className="flex items-center gap-2 mb-1">
                         {!msg.isOwn && (
                           <img
                             src={msg.photo || "/assets/profile-placeholder.jpg"}
                             className="w-6 h-6 rounded-full object-cover"
-                            alt={msg.name}
+                            alt={`Foto de perfil de ${msg.name || 'usuario'}`}
                           />
                         )}
 
@@ -294,24 +298,29 @@ export const CallRoomPage: React.FC = () => {
                       </div>
                     </div>
                   ))}
-                  <div ref={messagesEndRef} />
+                  <div data-messages-end />
                 </div>
 
                 {/* Chat Input */}
-                <form onSubmit={handleSendMessage} className="px-4 py-4 border-t border-(--color-border) shrink-0">
+                <form onSubmit={handleSendMessage} className="px-4 py-4 border-t border-(--color-border) shrink-0" aria-label="Formulario para enviar mensajes">
                   <div className="flex gap-2">
+                    <label htmlFor="chat-input-tablet" className="sr-only">Escribe tu mensaje</label>
                     <input
+                      id="chat-input-tablet"
                       type="text"
                       placeholder="Escribe un mensaje . . ."
                       value={chatMessage}
                       onChange={(e) => setChatMessage(e.target.value)}
-                      className="flex-1 h-10 px-4 bg-(--color-input-bg) text-white text-sm rounded-xl border border-(--color-border) focus:outline-none focus:border-(--color-primary) transition-colors placeholder:text-gray-500"
+                      className="flex-1 h-10 px-4 bg-(--color-input-bg) text-white text-sm rounded-xl border border-(--color-border) focus:outline-none focus:border-(--color-primary) focus:ring-2 focus:ring-(--color-primary) transition-colors placeholder:text-gray-500"
+                      aria-label="Campo de texto para escribir mensaje"
                     />
                     <button
                       type="submit"
-                      className="w-10 h-10 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-xl transition-colors flex items-center justify-center shrink-0"
+                      className="w-10 h-10 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-xl transition-colors flex items-center justify-center shrink-0 focus:outline-none focus:ring-2 focus:ring-(--color-primary) focus:ring-offset-2"
+                      aria-label="Enviar mensaje"
+                      title="Enviar mensaje"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
                     </button>
@@ -329,19 +338,27 @@ export const CallRoomPage: React.FC = () => {
                 {/* Chat Messages */}
                 <div 
                   className="flex-1 px-6 py-4 overflow-y-auto space-y-4 min-h-0"
+                  role="log"
+                  aria-label="Mensajes del chat"
+                  aria-live="polite"
                   style={{
                     scrollbarWidth: 'thin',
                     scrollbarColor: 'rgba(251, 251, 251, 0.7) transparent',
                   }}
                 >
                   {messages.map((msg, index) => (
-                    <div key={index} className={`flex flex-col ${msg.isOwn ? 'items-end' : 'items-start'}`}>
+                    <div 
+                      key={index} 
+                      className={`flex flex-col ${msg.isOwn ? 'items-end' : 'items-start'}`}
+                      role="article"
+                      aria-label={`Mensaje de ${msg.isOwn ? 'ti' : msg.name || msg.userId}`}
+                    >
                       <div className="flex items-center gap-2 mb-1">
                         {!msg.isOwn && (
                           <img
                             src={msg.photo || "/assets/profile-placeholder.jpg"}
                             className="w-6 h-6 rounded-full object-cover"
-                            alt={msg.name}
+                            alt={`Foto de perfil de ${msg.name || 'usuario'}`}
                           />
                         )}
 
@@ -356,24 +373,29 @@ export const CallRoomPage: React.FC = () => {
                       </div>
                     </div>
                   ))}
-                  <div ref={messagesEndRef} />
+                  <div data-messages-end />
                 </div>
 
                 {/* Chat Input */}
-                <form onSubmit={handleSendMessage} className="px-4 py-4 border-t border-(--color-border) shrink-0">
+                <form onSubmit={handleSendMessage} className="px-4 py-4 border-t border-(--color-border) shrink-0" aria-label="Formulario para enviar mensajes">
                   <div className="flex gap-2">
+                    <label htmlFor="chat-input-desktop" className="sr-only">Escribe tu mensaje</label>
                     <input
+                      id="chat-input-desktop"
                       type="text"
                       placeholder="Escribe un mensaje . . ."
                       value={chatMessage}
                       onChange={(e) => setChatMessage(e.target.value)}
-                      className="flex-1 h-10 px-4 bg-(--color-input-bg) text-white text-sm rounded-xl border border-(--color-border) focus:outline-none focus:border-(--color-primary) transition-colors placeholder:text-gray-500"
+                      className="flex-1 h-10 px-4 bg-(--color-input-bg) text-white text-sm rounded-xl border border-(--color-border) focus:outline-none focus:border-(--color-primary) focus:ring-2 focus:ring-(--color-primary) transition-colors placeholder:text-gray-500"
+                      aria-label="Campo de texto para escribir mensaje"
                     />
                     <button
                       type="submit"
-                      className="w-10 h-10 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-xl transition-colors flex items-center justify-center shrink-0"
+                      className="w-10 h-10 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-xl transition-colors flex items-center justify-center shrink-0 focus:outline-none focus:ring-2 focus:ring-(--color-primary) focus:ring-offset-2"
+                      aria-label="Enviar mensaje"
+                      title="Enviar mensaje"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
                     </button>
@@ -382,15 +404,17 @@ export const CallRoomPage: React.FC = () => {
               </div>
 
               {/* Mobile Chat - Fullscreen Overlay */}
-              <div className="md:hidden fixed inset-0 z-40 bg-(--color-background) flex flex-col pb-20">
+              <div className="md:hidden fixed inset-0 z-40 bg-(--color-background) flex flex-col pb-20" role="dialog" aria-modal="true" aria-label="Chat de la llamada">
                 {/* Chat Header with Close Button */}
                 <div className="px-4 py-4 border-b border-(--color-border) shrink-0 flex items-center justify-between">
-                  <h2 className="text-lg font-semibold text-white">Chat</h2>
+                  <h2 className="text-lg font-semibold text-white" id="mobile-chat-title">Chat</h2>
                   <button
                     onClick={() => setIsChatOpen(false)}
-                    className="p-2 text-gray-400 hover:text-white transition-colors"
+                    className="p-2 text-gray-400 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-(--color-primary) rounded-lg"
+                    aria-label="Cerrar chat"
+                    title="Cerrar chat"
                   >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
@@ -399,19 +423,27 @@ export const CallRoomPage: React.FC = () => {
                 {/* Chat Messages */}
                 <div 
                   className="flex-1 px-4 py-4 overflow-y-auto space-y-4 min-h-0"
+                  role="log"
+                  aria-label="Mensajes del chat"
+                  aria-live="polite"
                   style={{
                     scrollbarWidth: 'thin',
                     scrollbarColor: 'rgba(251, 251, 251, 0.7) transparent',
                   }}
                 >
                   {messages.map((msg, index) => (
-                    <div key={index} className={`flex flex-col ${msg.isOwn ? 'items-end' : 'items-start'}`}>
+                    <div 
+                      key={index} 
+                      className={`flex flex-col ${msg.isOwn ? 'items-end' : 'items-start'}`}
+                      role="article"
+                      aria-label={`Mensaje de ${msg.isOwn ? 'ti' : msg.name || msg.userId}`}
+                    >
                       <div className="flex items-center gap-2 mb-1">
                         {!msg.isOwn && (
                           <img
                             src={msg.photo || "/assets/profile-placeholder.jpg"}
                             className="w-6 h-6 rounded-full object-cover"
-                            alt={msg.name}
+                            alt={`Foto de perfil de ${msg.name || 'usuario'}`}
                           />
                         )}
 
@@ -426,24 +458,29 @@ export const CallRoomPage: React.FC = () => {
                       </div>
                     </div>
                   ))}
-                  <div ref={messagesEndRef} />
+                  <div data-messages-end />
                 </div>
 
                 {/* Chat Input */}
-                <form onSubmit={handleSendMessage} className="px-4 py-4 border-t border-(--color-border) shrink-0">
+                <form onSubmit={handleSendMessage} className="px-4 py-4 border-t border-(--color-border) shrink-0" aria-label="Formulario para enviar mensajes">
                   <div className="flex gap-2">
+                    <label htmlFor="chat-input-mobile" className="sr-only">Escribe tu mensaje</label>
                     <input
+                      id="chat-input-mobile"
                       type="text"
                       placeholder="Escribe un mensaje . . ."
                       value={chatMessage}
                       onChange={(e) => setChatMessage(e.target.value)}
-                      className="flex-1 h-10 px-4 bg-(--color-input-bg) text-white text-sm rounded-xl border border-(--color-border) focus:outline-none focus:border-(--color-primary) transition-colors placeholder:text-gray-500"
+                      className="flex-1 h-10 px-4 bg-(--color-input-bg) text-white text-sm rounded-xl border border-(--color-border) focus:outline-none focus:border-(--color-primary) focus:ring-2 focus:ring-(--color-primary) transition-colors placeholder:text-gray-500"
+                      aria-label="Campo de texto para escribir mensaje"
                     />
                     <button
                       type="submit"
-                      className="w-10 h-10 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-xl transition-colors flex items-center justify-center shrink-0"
+                      className="w-10 h-10 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-xl transition-colors flex items-center justify-center shrink-0 focus:outline-none focus:ring-2 focus:ring-(--color-primary) focus:ring-offset-2"
+                      aria-label="Enviar mensaje"
+                      title="Enviar mensaje"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
                     </button>
@@ -455,17 +492,25 @@ export const CallRoomPage: React.FC = () => {
         </div>
 
         {/* Call Controls - Fixed at bottom, always visible */}
-        <div className="fixed md:relative bottom-0 left-0 right-0 px-4 md:px-6 py-4 md:py-6 bg-(--color-background) md:bg-transparent flex items-center justify-center gap-4 z-50">
+        <div className="fixed md:relative bottom-0 left-0 right-0 px-4 md:px-6 py-4 md:py-6 bg-(--color-background) md:bg-transparent flex items-center justify-center gap-4 z-50" role="toolbar" aria-label="Controles de la llamada">
           {/* Microphone */}
-          <button className="w-12 h-12 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-full transition-colors flex items-center justify-center">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button 
+            className="w-12 h-12 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-full transition-colors flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-(--color-primary) focus:ring-offset-2"
+            aria-label="Activar o desactivar micrófono"
+            title="Activar o desactivar micrófono"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
             </svg>
           </button>
 
           {/* Camera */}
-          <button className="w-12 h-12 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-full transition-colors flex items-center justify-center">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button 
+            className="w-12 h-12 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-full transition-colors flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-(--color-primary) focus:ring-offset-2"
+            aria-label="Activar o desactivar cámara"
+            title="Activar o desactivar cámara"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
           </button>
@@ -473,9 +518,12 @@ export const CallRoomPage: React.FC = () => {
           {/* Chat Toggle */}
           <button
             onClick={() => setIsChatOpen(!isChatOpen)}
-            className={`w-12 h-12 ${isChatOpen ? 'bg-(--color-primary)' : 'bg-(--color-primary)'} hover:bg-(--color-primary-hover) text-white rounded-full transition-colors flex items-center justify-center`}
+            className={`w-12 h-12 ${isChatOpen ? 'bg-(--color-primary)' : 'bg-(--color-primary)'} hover:bg-(--color-primary-hover) text-white rounded-full transition-colors flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-(--color-primary) focus:ring-offset-2`}
+            aria-label={isChatOpen ? "Cerrar chat" : "Abrir chat"}
+            aria-pressed={isChatOpen}
+            title={isChatOpen ? "Cerrar chat" : "Abrir chat"}
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
             </svg>
           </button>
@@ -483,9 +531,11 @@ export const CallRoomPage: React.FC = () => {
           {/* End Call */}
           <button
             onClick={handleLeaveCall}
-            className="w-12 h-12 bg-(--color-error) hover:bg-(--color-error)/80 text-white rounded-full transition-colors flex items-center justify-center"
+            className="w-12 h-12 bg-(--color-error) hover:bg-(--color-error)/80 text-white rounded-full transition-colors flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-(--color-error) focus:ring-offset-2"
+            aria-label="Colgar llamada"
+            title="Colgar llamada"
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.683A1 1 0 008.279 3H5z" />
             </svg>
           </button>
