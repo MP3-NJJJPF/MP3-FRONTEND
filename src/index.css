@@ -6,7 +6,7 @@
     --color-primary-hover: #3B31E2;
     --color-background: #101622;
     --color-container: #1E293B;
-    --color-error: #E33629;
+    --color-error: #A71F16;
     --color-white: #FBFBFB;
     --color-input-bg: #0F172A;
     --color-border: #374151;
@@ -81,4 +81,24 @@ html, body, #root {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border-width: 0;
+}
+
+/* Cursor Pointer for Interactive Elements */
+button,
+a,
+[role="button"],
+[onClick],
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+label[for],
+select {
+  cursor: pointer;
+}
+
+/* Disabled elements should not have pointer cursor */
+button:disabled,
+input:disabled,
+select:disabled {
+  cursor: not-allowed;
 }
