@@ -4,7 +4,9 @@ import { Sidebar } from '../components/Sidebar';
 import { LeaveCallModal } from '../components/LeaveCallModal';
 import { socket } from '../sockets/socketManager';
 import { useAuthStore } from '../stores/useAuthStore';
-import { OnlineUser } from '../types/api.types';
+import { OnlineUser, VoiceParticipant as VoiceParticipantType } from '../types/api.types';
+import { webrtcService } from '../services/webrtc.service';
+import { VoiceParticipant } from '../components/VoiceParticipant';
 
 /**
  * CallRoomPage Component
@@ -18,6 +20,13 @@ export const CallRoomPage: React.FC = () => {
   const [chatMessage, setChatMessage] = useState('');
   const [messages, setMessages] = useState<{ userId: string; message: string; timestamp: string; isOwn: boolean; name?: string, photo?: string }[]>([]);
   const [isLeaveCallModalOpen, setIsLeaveCallModalOpen] = useState(false);
+
+  // WebRTC voice call states
+  const [isVoiceConnected, setIsVoiceConnected] = useState(false);
+  const [isVoiceLoading, setIsVoiceLoading] = useState(false);
+  const [voiceParticipants, setVoiceParticipants] = useState<Map<string, VoiceParticipantType>>(new Map());
+  const [isMicMuted, setIsMicMuted] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
 
   const { user } = useAuthStore();
 
@@ -55,6 +64,143 @@ export const CallRoomPage: React.FC = () => {
 
 
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
+
+  // Initialize voice connection
+  useEffect(() => {
+    if (!user || !roomId) return;
+
+    let isMounted = true;
+
+    const initVoiceCall = async () => {
+      setIsVoiceLoading(true);
+      setVoiceError(null);
+
+      try {
+        console.log('[CallRoom] Starting voice connection...');
+        
+        // Connect to voice server
+        await webrtcService.connect(
+          user.uid,
+          user.displayName || 'Usuario',
+          user.photoURL || undefined
+        );
+
+        if (!isMounted) return;
+
+        console.log('[CallRoom] Voice server connected, joining meeting...');
+
+        // Join the meeting
+        await webrtcService.joinMeeting(roomId);
+
+        if (!isMounted) return;
+
+        setIsVoiceConnected(true);
+        console.log('[CallRoom] Voice call initialized successfully');
+      } catch (error: any) {
+        console.error('[CallRoom] Voice call error:', error);
+        if (isMounted) {
+          setVoiceError(error.message || 'Error al conectar con la llamada de voz');
+        }
+      } finally {
+        if (isMounted) {
+          setIsVoiceLoading(false);
+        }
+      }
+    };
+
+    initVoiceCall();
+
+    // Cleanup on unmount
+    return () => {
+      isMounted = false;
+      if (isVoiceConnected) {
+        webrtcService.leaveMeeting();
+      }
+    };
+  }, [user?.uid, roomId]);
+
+  // Setup voice event listeners
+  useEffect(() => {
+    const handleUserJoined = (data: any) => {
+      console.log('[CallRoom] Voice user joined:', data);
+      
+      if (!data || !data.userId) {
+        console.error('[CallRoom] Invalid user joined data:', data);
+        return;
+      }
+
+      setVoiceParticipants((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(data.userId, {
+          userId: data.userId,
+          name: data.name || 'Usuario',
+          photo: data.photo,
+          isMuted: false,
+          isSpeaking: false,
+        });
+        return newMap;
+      });
+    };
+
+    const handleUserLeft = (data: any) => {
+      console.log('[CallRoom] Voice user left:', data);
+      
+      if (!data || !data.userId) {
+        console.error('[CallRoom] Invalid user left data:', data);
+        return;
+      }
+
+      setVoiceParticipants((prev) => {
+        const newMap = new Map(prev);
+        newMap.delete(data.userId);
+        return newMap;
+      });
+    };
+
+    const handleRemoteStream = (data: { userId: string; stream: MediaStream }) => {
+      console.log('[CallRoom] Remote stream received:', data.userId);
+      setVoiceParticipants((prev) => {
+        const newMap = new Map(prev);
+        const participant = newMap.get(data.userId);
+        if (participant) {
+          participant.stream = data.stream;
+          newMap.set(data.userId, { ...participant });
+        }
+        return newMap;
+      });
+    };
+
+    const handleAudioStateChanged = (data: any) => {
+      console.log('[CallRoom] Audio state changed:', data);
+      setVoiceParticipants((prev) => {
+        const newMap = new Map(prev);
+        const participant = newMap.get(data.userId);
+        if (participant) {
+          participant.isMuted = data.isMuted;
+          newMap.set(data.userId, { ...participant });
+        }
+        return newMap;
+      });
+    };
+
+    const handleMuteChanged = (isMuted: boolean) => {
+      setIsMicMuted(isMuted);
+    };
+
+    webrtcService.on('user-joined', handleUserJoined);
+    webrtcService.on('user-left', handleUserLeft);
+    webrtcService.on('remote-stream', handleRemoteStream);
+    webrtcService.on('audio-state-changed', handleAudioStateChanged);
+    webrtcService.on('mute-changed', handleMuteChanged);
+
+    return () => {
+      webrtcService.off('user-joined', handleUserJoined);
+      webrtcService.off('user-left', handleUserLeft);
+      webrtcService.off('remote-stream', handleRemoteStream);
+      webrtcService.off('audio-state-changed', handleAudioStateChanged);
+      webrtcService.off('mute-changed', handleMuteChanged);
+    };
+  }, []);
 
   useEffect(() => {
     const handler = (users: OnlineUser[]) => {
@@ -111,9 +257,23 @@ export const CallRoomPage: React.FC = () => {
 
   const handleConfirmLeave = () => {
     console.log('Leaving call...');
+    
+    // Leave voice call
+    if (isVoiceConnected) {
+      webrtcService.leaveMeeting();
+      webrtcService.disconnect();
+    }
+    
+    // Leave chat
     socket.emit("leave-call", { roomId });
     setIsLeaveCallModalOpen(false);
     navigate('/dashboard');
+  };
+
+  // Toggle microphone mute
+  const handleToggleMute = () => {
+    const newMutedState = webrtcService.toggleMute();
+    setIsMicMuted(newMutedState);
   };
 
   // Calculate participants to display
@@ -218,6 +378,65 @@ export const CallRoomPage: React.FC = () => {
                     <span className="text-xs text-gray-400">Ver todos</span>
                   </button>
                 )}
+              </div>
+            )}
+
+            {/* Voice Participants - WebRTC */}
+            {isVoiceConnected && voiceParticipants.size > 0 && (
+              <div className="hidden md:flex items-center gap-3 pb-4 overflow-x-auto shrink-0">
+                <div className="text-white text-sm font-semibold px-3 py-2 bg-(--color-container) rounded-xl">
+                  En llamada ({voiceParticipants.size + 1})
+                </div>
+                
+                {/* Local user (yourself) */}
+                {user && (
+                  <VoiceParticipant
+                    userId={user.uid}
+                    name={user.displayName || 'Tú'}
+                    photo={user.photoURL || undefined}
+                    isMuted={isMicMuted}
+                    stream={webrtcService.getLocalStream() || undefined}
+                    isLocal={true}
+                  />
+                )}
+
+                {/* Remote participants */}
+                {Array.from(voiceParticipants.values()).map((participant) => (
+                  <VoiceParticipant
+                    key={participant.userId}
+                    userId={participant.userId}
+                    name={participant.name}
+                    photo={participant.photo}
+                    isMuted={participant.isMuted}
+                    stream={participant.stream}
+                    isLocal={false}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Voice loading indicator */}
+            {isVoiceLoading && (
+              <div className="hidden md:flex items-center gap-3 pb-4">
+                <div className="text-white text-sm px-3 py-2 bg-(--color-container) rounded-xl flex items-center gap-2">
+                  <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Conectando a llamada de voz...
+                </div>
+              </div>
+            )}
+
+            {/* Voice error indicator */}
+            {voiceError && (
+              <div className="hidden md:flex items-center gap-3 pb-4">
+                <div className="text-white text-sm px-3 py-2 bg-red-500/20 border border-red-500/50 rounded-xl flex items-center gap-2">
+                  <svg className="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                  {voiceError}
+                </div>
               </div>
             )}
 
@@ -495,20 +714,36 @@ export const CallRoomPage: React.FC = () => {
         <div className="fixed md:relative bottom-0 left-0 right-0 px-4 md:px-6 py-4 md:py-6 bg-(--color-background) md:bg-transparent flex items-center justify-center gap-4 z-50" role="toolbar" aria-label="Controles de la llamada">
           {/* Microphone */}
           <button 
-            className="w-12 h-12 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-full transition-colors flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-(--color-primary) focus:ring-offset-2"
-            aria-label="Activar o desactivar micrófono"
-            title="Activar o desactivar micrófono"
+            onClick={handleToggleMute}
+            disabled={!isVoiceConnected}
+            className={`w-12 h-12 ${
+              isMicMuted 
+                ? 'bg-red-500 hover:bg-red-600' 
+                : 'bg-(--color-primary) hover:bg-(--color-primary-hover)'
+            } ${
+              !isVoiceConnected ? 'opacity-50 cursor-not-allowed' : ''
+            } text-white rounded-full transition-colors flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-(--color-primary) focus:ring-offset-2`}
+            aria-label={isMicMuted ? "Activar micrófono" : "Desactivar micrófono"}
+            title={isMicMuted ? "Activar micrófono" : "Desactivar micrófono"}
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-            </svg>
+            {isMicMuted ? (
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+              </svg>
+            ) : (
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+            )}
           </button>
 
-          {/* Camera */}
+          {/* Camera - Deshabilitado por ahora */}
           <button 
-            className="w-12 h-12 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-full transition-colors flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-(--color-primary) focus:ring-offset-2"
-            aria-label="Activar o desactivar cámara"
-            title="Activar o desactivar cámara"
+            disabled
+            className="w-12 h-12 bg-(--color-primary) opacity-50 cursor-not-allowed text-white rounded-full transition-colors flex items-center justify-center"
+            aria-label="Cámara (no disponible)"
+            title="Cámara (no disponible)"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
