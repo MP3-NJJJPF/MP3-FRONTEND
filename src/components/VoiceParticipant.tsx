@@ -14,7 +14,6 @@ interface VoiceParticipantProps {
 }
 
 export const VoiceParticipant: React.FC<VoiceParticipantProps> = ({
-  userId,
   name,
   photo,
   isMuted,
