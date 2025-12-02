@@ -23,7 +23,7 @@ Copia el archivo `.env.example` a `.env`:
 cp .env.example .env
 ```
 
-## 🏃‍♂️ Ejecutar en Desarrollo
+## Ejecutar en Desarrollo
 
 ```bash
 npm run dev
