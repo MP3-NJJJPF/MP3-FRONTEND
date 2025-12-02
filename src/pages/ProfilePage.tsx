@@ -13,7 +13,7 @@ import { useAuthStore } from '../stores/useAuthStore';
  * (change password, edit profile, delete account)
  */
 export const ProfilePage: React.FC = () => {
-  const { user: authUser, updateProfile, updatePassword, deleteAccount, isLoading } = useAuthStore();
+  const { user: authUser, authMethod, updateProfile, updatePassword, deleteAccount, isLoading } = useAuthStore();
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
@@ -21,35 +21,32 @@ export const ProfilePage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  
-
   const handleChangePassword = () => {
     setIsChangePasswordModalOpen(true);
   };
 
   const handleSavePassword = async (data: { currentPassword: string; newPassword: string; confirmPassword: string }) => {
-    try {
-      setErrorMessage('');
-      setSuccessMessage('');
-      
-      // Validate passwords match
-      if (data.newPassword !== data.confirmPassword) {
-        setErrorMessage('Las contraseñas no coinciden');
-        return;
-      }
-      
-      await updatePassword(data.currentPassword, data.newPassword);
-      
-      setSuccessMessage('Contraseña actualizada exitosamente');
-      setIsChangePasswordModalOpen(false);
-      
-      // Clear success message after 3 seconds
-      setTimeout(() => setSuccessMessage(''), 3000);
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Error al cambiar la contraseña. Verifica tu contraseña actual.';
-      setErrorMessage(errorMessage);
+  try {
+    setErrorMessage('');
+    setSuccessMessage('');
+    
+    if (data.newPassword !== data.confirmPassword) {
+      setErrorMessage('Las contraseñas no coinciden');
+      return;
     }
-  };
+    
+    await updatePassword(data.currentPassword, data.newPassword);
+    
+    setIsChangePasswordModalOpen(!isChangePasswordModalOpen);
+    
+    setSuccessMessage('Contraseña actualizada exitosamente');
+    setTimeout(() => setSuccessMessage(''), 3000);
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Error al cambiar la contraseña';
+    setErrorMessage(errorMessage);
+  }
+};
 
   const handleEditProfile = () => {
     setIsEditModalOpen(true);
@@ -161,7 +158,6 @@ export const ProfilePage: React.FC = () => {
 
           {/* Action Buttons */}
           <div className="space-y-3">
-            {/* Change Password Button */}
             <button
               onClick={handleChangePassword}
               className="w-full h-12 flex items-center justify-center gap-2 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white font-semibold rounded-xl transition-colors"
@@ -171,6 +167,16 @@ export const ProfilePage: React.FC = () => {
               </svg>
               Cambiar Contraseña
             </button>
+            
+
+            
+            {/* {(authMethod === 'google' || authMethod === 'github') && (
+              <div className="w-full p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+                <p className="text-sm text-blue-400 text-center">
+                  Para cambiar tu contraseña, hazlo desde tu cuenta de {authMethod === 'google' ? 'Google' : 'GitHub'}
+                </p>
+              </div>
+            )} */}
 
             {/* Edit Profile Button */}
             <button
@@ -213,6 +219,7 @@ export const ProfilePage: React.FC = () => {
         <ChangePasswordModal
           isOpen={isChangePasswordModalOpen}
           onClose={() => setIsChangePasswordModalOpen(false)}
+          authMethod={authMethod || null}
           onSave={handleSavePassword}
         />
 
@@ -220,6 +227,7 @@ export const ProfilePage: React.FC = () => {
         <DeleteAccountModal
           isOpen={isDeleteAccountModalOpen}
           onClose={() => setIsDeleteAccountModalOpen(false)}
+          authMethod={authMethod || null}
           onConfirm={handleConfirmDelete}
         />
       </main>

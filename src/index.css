@@ -6,7 +6,7 @@
     --color-primary-hover: #3B31E2;
     --color-background: #101622;
     --color-container: #1E293B;
-    --color-error: #E33629;
+    --color-error: #A71F16;
     --color-white: #FBFBFB;
     --color-input-bg: #0F172A;
     --color-border: #374151;
@@ -20,4 +20,85 @@ html, body, #root {
   height: 100%;
   overflow-x: hidden;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* Custom Scrollbar Styling */
+/* For Webkit browsers (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(251, 251, 251, 0.7);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(251, 251, 251, 0.9);
+}
+
+/* Remove scrollbar arrows */
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+/* Focus Visible Styles for Accessibility */
+*:focus-visible {
+  outline: 2px solid #4F46E5;
+  outline-offset: 2px;
+}
+
+/* Skip to main content link (for keyboard navigation) */
+.skip-to-main {
+  position: absolute;
+  left: -9999px;
+  z-index: 999;
+  padding: 1rem 1.5rem;
+  background-color: #4F46E5;
+  color: white;
+  text-decoration: none;
+  border-radius: 0.5rem;
+}
+
+.skip-to-main:focus {
+  left: 1rem;
+  top: 1rem;
+}
+
+/* Screen reader only text */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Cursor Pointer for Interactive Elements */
+button,
+a,
+[role="button"],
+[onClick],
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+label[for],
+select {
+  cursor: pointer;
+}
+
+/* Disabled elements should not have pointer cursor */
+button:disabled,
+input:disabled,
+select:disabled {
+  cursor: not-allowed;
 }
