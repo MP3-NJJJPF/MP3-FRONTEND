@@ -83,7 +83,7 @@ export interface Meeting {
 }
 
 /**
- * Voice participant in a call
+ * Voice participant in a call 
  */
 export interface VoiceParticipant {
   userId: string;
