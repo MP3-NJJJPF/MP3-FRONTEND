@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 /**
  * VoiceParticipant Component
@@ -21,7 +21,6 @@ export const VoiceParticipant: React.FC<VoiceParticipantProps> = ({
   stream,
   isLocal = false,
 }) => {
-  const audioRef = useRef<HTMLAudioElement>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
   // Log received props
