@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 /**
  * VoiceParticipant Component
@@ -21,7 +21,6 @@ export const VoiceParticipant: React.FC<VoiceParticipantProps> = ({
   stream,
   isLocal = false,
 }) => {
-  const audioRef = useRef<HTMLAudioElement>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
   // Log received props
@@ -38,71 +37,11 @@ export const VoiceParticipant: React.FC<VoiceParticipantProps> = ({
 
   // Setup audio element for remote streams
   useEffect(() => {
-    if (!isLocal && stream && audioRef.current) {
-      console.log('[AUDIO] ==== SETTING UP AUDIO ELEMENT ====');
-      console.log('[AUDIO] For user:', name);
-      console.log('[AUDIO] Stream ID:', stream.id);
-      console.log('[AUDIO] Stream active:', stream.active);
-      console.log('[AUDIO] Stream tracks:', stream.getTracks().map(t => ({
-        kind: t.kind,
-        enabled: t.enabled,
-        muted: t.muted,
-        readyState: t.readyState
-      })));
-      
-      const audioElement = audioRef.current;
-      
-      // CRÍTICO: Forzar que todos los tracks estén enabled
-      stream.getTracks().forEach(track => {
-        track.enabled = true;
-        console.log('[AUDIO] Forcing track enabled:', track.kind, track.enabled);
-        
-        // NUEVO: Escuchar cambios en el estado muted del track
-        track.onmute = () => {
-          console.log('[AUDIO] ⚠️ Track muted event!');
-        };
-        track.onunmute = () => {
-          console.log('[AUDIO] ✅ Track UNMUTED! Audio should work now');
-        };
-      });
-      
-      audioElement.srcObject = stream;
-      audioElement.volume = 1.0;
-      audioElement.muted = false;
-      audioElement.defaultMuted = false;
-      
-      console.log('[AUDIO] Audio element properties:', {
-        volume: audioElement.volume,
-        muted: audioElement.muted,
-        paused: audioElement.paused
-      });
-      
-      audioElement.play().then(() => {
-        console.log('[AUDIO] ✅✅✅ AUDIO PLAYING for:', name);
-        console.log('[AUDIO] Final audio element state:', {
-          volume: audioElement.volume,
-          muted: audioElement.muted,
-          paused: audioElement.paused,
-          currentTime: audioElement.currentTime
-        });
-      }).catch(error => {
-        console.error('[AUDIO] ❌❌❌ FAILED TO PLAY:', error.name, error.message);
-        console.log('[AUDIO] Audio element at error:', {
-          volume: audioElement.volume,
-          muted: audioElement.muted,
-          readyState: audioElement.readyState
-        });
-        
-        // Try with user interaction
-        const playOnClick = () => {
-          console.log('[AUDIO] Attempting play on user click...');
-          audioElement.play()
-            .then(() => console.log('[AUDIO] ✅ Play successful after click'))
-            .catch(e => console.error('[AUDIO] ❌ Still failed:', e.message));
-        };
-        document.addEventListener('click', playOnClick, { once: true });
-      });
-    }
+    // SKIP: Audio is now handled centrally in CallRoomPage
+    // This component only handles visualization
+    if (isLocal || !stream) return;
+    
+    console.log('[VoiceParticipant] 📊 Visualizing participant:', name, 'hasStream:', !!stream);
   }, [stream, isLocal, name]);
 
   // Audio level detection
@@ -143,16 +82,7 @@ export const VoiceParticipant: React.FC<VoiceParticipantProps> = ({
 
   return (
     <div className="relative">
-      {/* Hidden audio element for remote streams */}
-      {!isLocal && (
-        <audio 
-          ref={audioRef} 
-          autoPlay 
-          playsInline
-          controls={false}
-          style={{ display: 'none' }}
-        />
-      )}
+      {/* Audio is now handled centrally in CallRoomPage */}
       
       {/* Participant card */}
       <div
