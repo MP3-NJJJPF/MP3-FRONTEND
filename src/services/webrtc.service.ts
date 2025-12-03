@@ -8,6 +8,7 @@ class WebRTCService {
   private socket: Socket | null = null;
   private localStream: MediaStream | null = null;
   private peerConnections: Map<string, RTCPeerConnection> = new Map();
+  private pendingIceCandidates: Map<string, any[]> = new Map();
   private iceServers: RTCIceServer[] = [];
   private currentMeetingId: string | null = null;
   private currentUserId: string | null = null;
@@ -155,29 +156,34 @@ class WebRTCService {
 
     // User joined the meeting (backend envía: user-joined)
     this.socket.on('user-joined', (data: any) => {
-      console.log('[WebRTC] 👤 User joined event received');
-      console.log('[WebRTC] Data:', JSON.stringify(data, null, 2));
-      
-      if (!data || !data.userId) {
-        console.error('[WebRTC] ❌ Invalid user joined data:', data);
+      if (!data || !data.userId) return;
+
+      // CRÍTICO: No crear peer connection contigo mismo
+      if (data.userId === this.currentUserId) {
+        console.log('[WebRTC] ⚠️ Ignoring self user-joined event');
         return;
       }
 
-      console.log('[WebRTC] ✅ Valid user:', data.userId, data.name);
+      const displayName = data.name || data.userId;
+      console.log('[WebRTC] 👤 User joined:', displayName, '(', data.userId, ')');
       
-      // Emit for component
       this.emit('user-joined', {
         userId: data.userId,
-        name: data.name,
+        name: displayName,
         photo: data.photo,
       });
       
-      // Create peer connection for the new user
-      if (this.localStream) {
-        console.log('[WebRTC] 🔗 Creating peer connection with:', data.userId);
+      // SOLUCIÓN RACE CONDITION: Solo el usuario con ID "menor" crea la oferta
+      // Esto evita que ambos peers creen offers simultáneamente
+      const shouldInitiate = this.currentUserId! < data.userId;
+      
+      if (this.localStream && shouldInitiate) {
+        console.log('[WebRTC] 🎯 I should initiate (my ID < their ID), creating offer...');
         this.createPeerConnection(data.userId);
+      } else if (!shouldInitiate) {
+        console.log('[WebRTC] ⏸️ Waiting for offer from peer (their ID < my ID)');
       } else {
-        console.warn('[WebRTC] ⚠️ No local stream available, cannot create peer connection');
+        console.warn('[WebRTC] ⚠️ No local stream available');
       }
     });
 
@@ -196,23 +202,41 @@ class WebRTCService {
 
     // Received WebRTC offer (backend envía: webrtc-offer)
     this.socket.on('webrtc-offer', async (data: any) => {
-      console.log('[WebRTC] 📨 Received OFFER');
-      console.log('[WebRTC] Offer data:', JSON.stringify({ from: data.from, to: data.to, hasOffer: !!data.offer }));
+      // Ignorar offers de uno mismo
+      if (data.from === this.currentUserId) {
+        console.log('[WebRTC] ⚠️ Ignoring offer from self');
+        return;
+      }
+      console.log('[WebRTC] 📨 Received OFFER from:', data.from);
       await this.handleOffer(data);
     });
 
     // Received WebRTC answer (backend envía: webrtc-answer)
     this.socket.on('webrtc-answer', async (data: any) => {
-      console.log('[WebRTC] 📨 Received ANSWER');
-      console.log('[WebRTC] Answer data:', JSON.stringify({ from: data.from, to: data.to, hasAnswer: !!data.answer }));
+      // Ignorar answers de uno mismo
+      if (data.from === this.currentUserId) {
+        console.log('[WebRTC] ⚠️ Ignoring answer from self');
+        return;
+      }
+      console.log('[WebRTC] 📨 Received ANSWER from:', data.from);
       await this.handleAnswer(data);
     });
 
-    // Received ICE candidate (backend envía: ice-candidate)
+    // Received ICE candidate (backend envía: ice-candidate) - CRÍTICO
     this.socket.on('ice-candidate', async (data: any) => {
-      console.log('[WebRTC] 🧊 Received ICE candidate');
-      console.log('[WebRTC] ICE data:', JSON.stringify({ from: data.from, to: data.to, hasCandidate: !!data.candidate }));
+      console.log('[WebRTC] 🧊 ===== RECEIVED ICE CANDIDATE =====');
+      console.log('[WebRTC] 🧊 From:', data.from || data.fromUserId);
+      console.log('[WebRTC] 🧊 To:', data.to);
+      console.log('[WebRTC] 🧊 Has candidate:', !!data.candidate);
+      
+      // Ignorar candidatos de uno mismo
+      if (data.from === this.currentUserId || data.fromUserId === this.currentUserId) {
+        console.log('[WebRTC] 🧊 ⚠️ Ignoring ICE candidate from self');
+        return;
+      }
+      
       await this.handleIceCandidate(data);
+      console.log('[WebRTC] 🧊 ===== END ICE CANDIDATE =====');
     });
 
     // Audio state changed (backend envía: audio-state-changed)
@@ -264,6 +288,17 @@ class WebRTCService {
       });
 
       console.log('[WebRTC] Local stream acquired');
+      
+      // Ensure audio tracks are enabled and NOT muted
+      this.localStream.getAudioTracks().forEach(track => {
+        track.enabled = true;
+        console.log('[AUDIO] Local track configured:', {
+          enabled: track.enabled,
+          muted: track.muted,
+          readyState: track.readyState
+        });
+      });
+      
       this.emit('local-stream', this.localStream);
     } catch (error) {
       console.error('[WebRTC] Failed to get local stream:', error);
@@ -374,21 +409,41 @@ class WebRTCService {
     const pc = new RTCPeerConnection({ iceServers: this.iceServers });
     this.peerConnections.set(userId, pc);
 
-    console.log('[WebRTC] ✅ RTCPeerConnection created for:', userId);
-
     // Add local stream tracks
     if (this.localStream) {
-      this.localStream.getTracks().forEach((track) => {
-        console.log('[WebRTC] 🎤 Adding local track to peer:', track.kind, 'for', userId);
+      const audioTracks = this.localStream.getAudioTracks();
+      console.log('[AUDIO] 🎤 Adding', audioTracks.length, 'local audio tracks to:', userId);
+      audioTracks.forEach((track, index) => {
+        console.log(`[AUDIO] Track ${index}:`, {
+          kind: track.kind,
+          enabled: track.enabled,
+          muted: track.muted,
+          readyState: track.readyState,
+          label: track.label
+        });
         pc.addTrack(track, this.localStream!);
+        console.log(`[AUDIO] ✅ Track ${index} added to peer connection`);
       });
+      
+      // Verify tracks were added
+      const senders = pc.getSenders();
+      console.log('[AUDIO] 📊 Peer connection has', senders.length, 'senders');
+      senders.forEach((sender, idx) => {
+        if (sender.track) {
+          console.log(`[AUDIO] Sender ${idx}:`, sender.track.kind, 'enabled:', sender.track.enabled);
+        }
+      });
+    } else {
+      console.error('[AUDIO] ❌ NO LOCAL STREAM!');
     }
 
-    // Handle ICE candidates
+    // Handle ICE candidates - CRÍTICO PARA ESTABLECER CONEXIÓN
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log('[WebRTC] 🧊 Sending ICE candidate to:', userId);
-        console.log('[WebRTC] Candidate type:', event.candidate.type);
+        console.log('[WebRTC] 🧊 ICE candidate generated for:', userId);
+        console.log('[WebRTC] 🧊 Candidate type:', event.candidate.type);
+        console.log('[WebRTC] 🧊 Candidate:', event.candidate.candidate);
+        
         if (this.socket && this.currentUserId && this.currentMeetingId) {
           this.socket.emit('ice-candidate', {
             from: this.currentUserId,
@@ -396,83 +451,113 @@ class WebRTCService {
             candidate: event.candidate.toJSON(),
             meetingId: this.currentMeetingId
           });
+          console.log('[WebRTC] 🧊 ✅ ICE candidate SENT to:', userId);
+        } else {
+          console.error('[WebRTC] 🧊 ❌ Cannot send ICE candidate - missing socket/userId/meetingId');
         }
       } else {
-        console.log('[WebRTC] ✅ ICE gathering complete for:', userId);
+        console.log('[WebRTC] 🧊 ✅ All ICE candidates sent for:', userId);
       }
     };
 
     // Handle ICE connection state
     pc.oniceconnectionstatechange = () => {
-      console.log('[WebRTC] 🔌 ICE connection state with', userId, ':', pc.iceConnectionState);
-      if (pc.iceConnectionState === 'failed') {
-        console.error('[WebRTC] ❌ ICE connection FAILED with:', userId);
-      } else if (pc.iceConnectionState === 'connected') {
-        console.log('[WebRTC] ✅ ICE connection ESTABLISHED with:', userId);
+      console.log('[WebRTC] ❄️ ICE connection state changed:', pc.iceConnectionState, 'with:', userId);
+      if (pc.iceConnectionState === 'connected') {
+        console.log('[AUDIO] ✅ ICE CONNECTED with:', userId);
+      } else if (pc.iceConnectionState === 'completed') {
+        console.log('[AUDIO] ✅ ICE COMPLETED with:', userId);
+      } else if (pc.iceConnectionState === 'failed') {
+        console.error('[AUDIO] ❌ ICE FAILED with:', userId);
+        console.error('[AUDIO] Connection may need restart or TURN servers');
       } else if (pc.iceConnectionState === 'disconnected') {
-        console.warn('[WebRTC] ⚠️ ICE connection DISCONNECTED with:', userId);
+        console.warn('[AUDIO] ⚠️ ICE DISCONNECTED with:', userId);
       }
     };
 
-    // Handle remote stream
+    // Handle remote stream - CRÍTICO PARA ESCUCHAR AUDIO
     pc.ontrack = (event) => {
-      console.log('[WebRTC] 🎵 Received REMOTE TRACK from:', userId);
-      console.log('[WebRTC] Track kind:', event.track.kind);
-      console.log('[WebRTC] Track enabled:', event.track.enabled);
-      console.log('[WebRTC] Streams count:', event.streams.length);
+      console.log('[AUDIO] 🎵 ==== REMOTE TRACK RECEIVED ====');
+      console.log('[AUDIO] From:', userId);
+      console.log('[AUDIO] Track kind:', event.track.kind);
+      console.log('[AUDIO] Track enabled:', event.track.enabled);
+      console.log('[AUDIO] Track muted:', event.track.muted);
+      console.log('[AUDIO] Track readyState:', event.track.readyState);
+      
+      // CRÍTICO: Forzar que el track esté enabled (tracks pueden venir deshabilitados)
+      event.track.enabled = true;
+      console.log('[AUDIO] ✅ Track enabled set to TRUE');
+      
+      console.log('[AUDIO] Streams count:', event.streams.length);
       
       const remoteStream = event.streams[0];
       if (remoteStream) {
-        console.log('[WebRTC] ✅ Remote stream received with', remoteStream.getTracks().length, 'tracks');
+        console.log('[AUDIO] ✅ Stream ID:', remoteStream.id);
+        console.log('[AUDIO] Stream active:', remoteStream.active);
+        console.log('[AUDIO] Stream tracks:', remoteStream.getTracks().length);
+        
+        // CRÍTICO: Asegurar que TODOS los tracks del stream estén enabled
+        remoteStream.getTracks().forEach((t, i) => {
+          t.enabled = true;
+          console.log(`[AUDIO] Track ${i}:`, t.kind, 'enabled:', t.enabled, 'muted:', t.muted);
+        });
+        
+        console.log('[AUDIO] 📢 Emitting remote-stream event...');
         this.emit('remote-stream', { userId, stream: remoteStream });
+        console.log('[AUDIO] ==== END REMOTE TRACK ====');
       } else {
-        console.error('[WebRTC] ❌ No stream in track event!');
+        console.error('[AUDIO] ❌❌❌ NO STREAM in track event!');
       }
     };
 
     // Handle connection state
     pc.onconnectionstatechange = () => {
-      console.log('[WebRTC] 🔗 Connection state with', userId, ':', pc.connectionState);
-      
       if (pc.connectionState === 'connected') {
-        console.log('[WebRTC] ✅✅✅ PEER CONNECTION ESTABLISHED with:', userId);
+        console.log('[AUDIO] ✅ PEER CONNECTED with:', userId);
       } else if (pc.connectionState === 'failed') {
-        console.error('[WebRTC] ❌❌❌ PEER CONNECTION FAILED with:', userId);
-        this.closePeerConnection(userId);
+        console.error('[AUDIO] ❌ PEER CONNECTION FAILED with:', userId);
       } else if (pc.connectionState === 'disconnected') {
-        console.warn('[WebRTC] ⚠️ Peer connection DISCONNECTED with:', userId);
+        console.warn('[AUDIO] ⚠️ PEER DISCONNECTED with:', userId);
       }
+      console.log('[WebRTC] 🔗 Connection state:', pc.connectionState, 'with:', userId);
     };
-
+    
+    // Handle ICE gathering state
+    pc.onicegatheringstatechange = () => {
+      console.log('[WebRTC] 📡 ICE gathering state:', pc.iceGatheringState, 'with:', userId);
+    };
+    
     // Handle signaling state
     pc.onsignalingstatechange = () => {
-      console.log('[WebRTC] 📡 Signaling state with', userId, ':', pc.signalingState);
+      console.log('[WebRTC] 📶 Signaling state:', pc.signalingState, 'with:', userId);
     };
 
     // Create and send offer
     try {
-      console.log('[WebRTC] 📤 Creating offer for:', userId);
-      const offer = await pc.createOffer();
-      console.log('[WebRTC] Offer created, setting local description');
+      console.log('[WebRTC] 🎯 Creating offer for:', userId);
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: false,
+      });
       
+      console.log('[WebRTC] 📝 Offer created, setting local description...');
       await pc.setLocalDescription(offer);
-      console.log('[WebRTC] ✅ Local description set');
+      console.log('[WebRTC] ✅ Local description set (offer)');
+      console.log('[WebRTC] 📤 Sending offer to:', userId);
 
       if (this.socket && this.currentUserId && this.currentMeetingId) {
-        console.log('[WebRTC] 📨 Sending offer to:', userId);
         this.socket.emit('webrtc-offer', {
           from: this.currentUserId,
           to: userId,
           offer: pc.localDescription!.toJSON(),
           meetingId: this.currentMeetingId
         });
-        console.log('[WebRTC] ✅ Offer sent successfully');
+        console.log('[WebRTC] ✅ Offer sent successfully to:', userId);
       } else {
-        console.error('[WebRTC] ❌ Socket not available to send offer!');
+        console.error('[WebRTC] ❌ Cannot send offer - missing socket/userId/meetingId');
       }
     } catch (error) {
       console.error('[WebRTC] ❌ Failed to create/send offer:', error);
-      console.error('[WebRTC] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     }
 
     return pc;
@@ -484,8 +569,10 @@ class WebRTCService {
   private async handleOffer(data: any): Promise<void> {
     const fromUserId = data.fromUserId || data.from;
     
-    console.log('[WebRTC] 📥 HANDLING OFFER');
+    console.log('[WebRTC] 📥 ===== HANDLING OFFER =====');
+    console.log('[WebRTC] Raw data:', JSON.stringify(data, null, 2));
     console.log('[WebRTC] From:', fromUserId);
+    console.log('[WebRTC] Has offer?', !!data.offer);
     
     if (!data || !fromUserId) {
       console.error('[WebRTC] ❌ Invalid offer data:', data);
@@ -508,22 +595,42 @@ class WebRTCService {
 
         // Add local stream tracks
         if (this.localStream) {
-          this.localStream.getTracks().forEach((track) => {
-            console.log('[WebRTC] 🎤 Adding local track:', track.kind);
+          const tracks = this.localStream.getTracks();
+          console.log('[WebRTC] 🎤 Adding', tracks.length, 'local tracks (handleOffer)');
+          tracks.forEach((track, index) => {
+            console.log(`[WebRTC] Track ${index}:`, {
+              kind: track.kind,
+              enabled: track.enabled,
+              muted: track.muted,
+              readyState: track.readyState,
+              label: track.label
+            });
             pc!.addTrack(track, this.localStream!);
+            console.log(`[WebRTC] ✅ Track ${index} added`);
           });
+          
+          // Verify tracks were added
+          const senders = pc.getSenders();
+          console.log('[WebRTC] 📊 Peer connection has', senders.length, 'senders (handleOffer)');
         }
 
         // Handle ICE candidates
         pc.onicecandidate = (event) => {
-          if (event.candidate && this.socket && this.currentUserId && this.currentMeetingId) {
-            console.log('[WebRTC] 🧊 Sending ICE candidate (from handleOffer) to:', fromUserId);
-            this.socket.emit('ice-candidate', {
-              from: this.currentUserId,
-              to: fromUserId,
-              candidate: event.candidate.toJSON(),
-              meetingId: this.currentMeetingId
-            });
+          if (event.candidate) {
+            console.log('[WebRTC] 🧊 ICE candidate generated (handleOffer) for:', fromUserId);
+            console.log('[WebRTC] 🧊 Candidate type:', event.candidate.type);
+            
+            if (this.socket && this.currentUserId && this.currentMeetingId) {
+              this.socket.emit('ice-candidate', {
+                from: this.currentUserId,
+                to: fromUserId,
+                candidate: event.candidate.toJSON(),
+                meetingId: this.currentMeetingId
+              });
+              console.log('[WebRTC] 🧊 ✅ ICE candidate SENT (handleOffer) to:', fromUserId);
+            }
+          } else {
+            console.log('[WebRTC] 🧊 ✅ All ICE candidates sent (handleOffer) for:', fromUserId);
           }
         };
 
@@ -553,6 +660,21 @@ class WebRTCService {
       await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
       console.log('[WebRTC] ✅ Remote description set');
       
+      // Process pending ICE candidates if any
+      const pendingCandidates = this.pendingIceCandidates.get(fromUserId);
+      if (pendingCandidates && pendingCandidates.length > 0) {
+        console.log('[WebRTC] 📦 Processing', pendingCandidates.length, 'pending ICE candidates for:', fromUserId);
+        for (const candidate of pendingCandidates) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            console.log('[WebRTC] ✅ Added pending ICE candidate');
+          } catch (err) {
+            console.error('[WebRTC] ❌ Failed to add pending ICE candidate:', err);
+          }
+        }
+        this.pendingIceCandidates.delete(fromUserId);
+      }
+      
       console.log('[WebRTC] Creating answer');
       const answer = await pc.createAnswer();
       console.log('[WebRTC] Answer created');
@@ -569,6 +691,7 @@ class WebRTCService {
           meetingId: this.currentMeetingId
         });
         console.log('[WebRTC] ✅ Answer sent successfully');
+        console.log('[WebRTC] ===== END HANDLING OFFER =====');
       }
     } catch (error) {
       console.error('[WebRTC] ❌ Failed to handle offer:', error);
@@ -582,7 +705,10 @@ class WebRTCService {
   private async handleAnswer(data: any): Promise<void> {
     const fromUserId = data.fromUserId || data.from;
     
-    console.log('[WebRTC] 📥 HANDLING ANSWER from:', fromUserId);
+    console.log('[WebRTC] 📥 ===== HANDLING ANSWER =====');
+    console.log('[WebRTC] Raw data:', JSON.stringify(data, null, 2));
+    console.log('[WebRTC] From:', fromUserId);
+    console.log('[WebRTC] Has answer?', !!data.answer);
     
     if (!data || !fromUserId) {
       console.error('[WebRTC] ❌ Invalid answer data:', data);
@@ -596,13 +722,46 @@ class WebRTCService {
 
     try {
       const pc = this.peerConnections.get(fromUserId);
-      if (pc) {
-        console.log('[WebRTC] Setting remote description (answer)');
-        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-        console.log('[WebRTC] ✅ Remote description (answer) set for:', fromUserId);
-      } else {
+      if (!pc) {
         console.warn('[WebRTC] ⚠️ No peer connection found for:', fromUserId);
+        return;
       }
+
+      // Check signaling state before setting remote description
+      console.log('[WebRTC] Current signaling state:', pc.signalingState);
+      
+      // If already stable or closed, don't try to set answer
+      if (pc.signalingState === 'stable' || pc.signalingState === 'closed') {
+        console.log('[WebRTC] ℹ️ Peer connection in', pc.signalingState, 'state, skipping answer');
+        return;
+      }
+      
+      // Can only set answer if we're waiting for one
+      if (pc.signalingState !== 'have-local-offer') {
+        console.warn('[WebRTC] ⚠️ Cannot process answer in state:', pc.signalingState);
+        return;
+      }
+
+      console.log('[WebRTC] Setting remote description (answer)');
+      await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+      console.log('[WebRTC] ✅ Remote description (answer) set for:', fromUserId);
+      console.log('[WebRTC] ✅ Connection negotiation complete with:', fromUserId);
+      
+      // Process pending ICE candidates if any
+      const pendingCandidates = this.pendingIceCandidates.get(fromUserId);
+      if (pendingCandidates && pendingCandidates.length > 0) {
+        console.log('[WebRTC] 📦 Processing', pendingCandidates.length, 'pending ICE candidates for:', fromUserId);
+        for (const candidate of pendingCandidates) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            console.log('[WebRTC] ✅ Added pending ICE candidate');
+          } catch (err) {
+            console.error('[WebRTC] ❌ Failed to add pending ICE candidate:', err);
+          }
+        }
+        this.pendingIceCandidates.delete(fromUserId);
+      }
+      console.log('[WebRTC] ===== END HANDLING ANSWER =====');
     } catch (error) {
       console.error('[WebRTC] ❌ Failed to handle answer:', error);
       console.error('[WebRTC] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
@@ -623,23 +782,43 @@ class WebRTCService {
     }
 
     if (!data.candidate) {
-      console.error('[WebRTC] ❌ No candidate in data!');
+      console.log('[WebRTC] 🧊 Empty ICE candidate (end of candidates) from:', fromUserId);
       return;
     }
 
     try {
       const pc = this.peerConnections.get(fromUserId);
-      if (pc && data.candidate) {
-        console.log('[WebRTC] Adding ICE candidate');
-        await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-        console.log('[WebRTC] ✅ ICE candidate added for:', fromUserId);
-      } else {
-        if (!pc) console.warn('[WebRTC] ⚠️ No peer connection found for:', fromUserId);
-        if (!data.candidate) console.warn('[WebRTC] ⚠️ No candidate in data');
+      if (!pc) {
+        console.error('[WebRTC] 🧊 ❌ No peer connection for ICE candidate from:', fromUserId);
+        console.error('[WebRTC] 🧊 Available connections:', Array.from(this.peerConnections.keys()));
+        return;
       }
+
+      console.log('[WebRTC] 🧊 Peer connection found for:', fromUserId);
+      console.log('[WebRTC] 🧊 Remote description set?', !!pc.remoteDescription);
+      console.log('[WebRTC] 🧊 Signaling state:', pc.signalingState);
+
+      // Check if remote description is set before adding ICE candidate
+      if (!pc.remoteDescription) {
+        console.warn('[WebRTC] 🧊 ⚠️ No remote description yet, queuing ICE candidate for:', fromUserId);
+        // Store candidate to add later
+        if (!this.pendingIceCandidates.has(fromUserId)) {
+          this.pendingIceCandidates.set(fromUserId, []);
+        }
+        this.pendingIceCandidates.get(fromUserId)!.push(data.candidate);
+        console.log('[WebRTC] 🧊 Queued candidate. Total pending:', this.pendingIceCandidates.get(fromUserId)!.length);
+        return;
+      }
+
+      console.log('[WebRTC] 🧊 Adding ICE candidate to peer connection...');
+      console.log('[WebRTC] 🧊 Candidate details:', JSON.stringify(data.candidate, null, 2));
+      
+      await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+      console.log('[WebRTC] 🧊 ✅ ICE candidate SUCCESSFULLY ADDED for:', fromUserId);
     } catch (error) {
-      console.error('[WebRTC] ❌ Failed to add ICE candidate:', error);
-      console.error('[WebRTC] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+      console.error('[WebRTC] 🧊 ❌ Failed to add ICE candidate:', error);
+      console.error('[WebRTC] 🧊 Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+      console.error('[WebRTC] 🧊 Candidate was:', JSON.stringify(data.candidate, null, 2));
     }
   }
 

@@ -122,22 +122,37 @@ export const CallRoomPage: React.FC = () => {
   // Setup voice event listeners
   useEffect(() => {
     const handleUserJoined = (data: any) => {
-      console.log('[CallRoom] Voice user joined:', data);
+      console.log('[CallRoom] 👥 Voice user joined:', data);
+      console.log('[CallRoom] 🔍 User details:', {
+        userId: data.userId,
+        name: data.name,
+        userName: data.userName,
+        photo: data.photo,
+        hasName: !!data.name,
+        hasUserName: !!data.userName,
+        nameType: typeof data.name,
+        userNameType: typeof data.userName
+      });
       
       if (!data || !data.userId) {
         console.error('[CallRoom] Invalid user joined data:', data);
         return;
       }
 
+      const displayName = data.name || data.userName || `User-${data.userId.substring(0, 8)}`;
+      console.log('[CallRoom] ✅ Setting participant name to:', displayName);
+      console.log('[CallRoom] 📝 Name source:', data.name ? 'data.name' : data.userName ? 'data.userName' : 'fallback');
+
       setVoiceParticipants((prev) => {
         const newMap = new Map(prev);
         newMap.set(data.userId, {
           userId: data.userId,
-          name: data.name || 'Usuario',
+          name: displayName,
           photo: data.photo,
           isMuted: false,
           isSpeaking: false,
         });
+        console.log('[CallRoom] 📄 Participants map updated:', Array.from(newMap.values()));
         return newMap;
       });
     };
@@ -158,13 +173,27 @@ export const CallRoomPage: React.FC = () => {
     };
 
     const handleRemoteStream = (data: { userId: string; stream: MediaStream }) => {
-      console.log('[CallRoom] Remote stream received:', data.userId);
+      console.log('[CallRoom] 🎧 Remote stream received for userId:', data.userId);
+      console.log('[CallRoom] 🎵 Stream details:', {
+        id: data.stream.id,
+        active: data.stream.active,
+        tracks: data.stream.getTracks().map(t => ({
+          kind: t.kind,
+          enabled: t.enabled,
+          muted: t.muted,
+          readyState: t.readyState
+        }))
+      });
+      
       setVoiceParticipants((prev) => {
         const newMap = new Map(prev);
         const participant = newMap.get(data.userId);
         if (participant) {
+          console.log('[CallRoom] ✅ Updating participant with stream:', data.userId);
           participant.stream = data.stream;
           newMap.set(data.userId, { ...participant });
+        } else {
+          console.warn('[CallRoom] ⚠️ Participant not found for stream:', data.userId);
         }
         return newMap;
       });
