@@ -119,25 +119,53 @@ export const CallRoomPage: React.FC = () => {
     };
   }, [user?.uid, roomId]);
 
+  // Debug: Log voice participants changes
+  useEffect(() => {
+    console.log('[CallRoom] 📊 Voice participants changed. Total:', voiceParticipants.size);
+    voiceParticipants.forEach((participant, userId) => {
+      console.log(`[CallRoom] 👤 ${participant.name} (${userId}):`, {
+        hasStream: !!participant.stream,
+        streamActive: participant.stream?.active,
+        isMuted: participant.isMuted,
+        isSpeaking: participant.isSpeaking
+      });
+    });
+  }, [voiceParticipants]);
+
   // Setup voice event listeners
   useEffect(() => {
     const handleUserJoined = (data: any) => {
-      console.log('[CallRoom] Voice user joined:', data);
+      console.log('[CallRoom] 👥 Voice user joined:', data);
+      console.log('[CallRoom] 🔍 User details:', {
+        userId: data.userId,
+        name: data.name,
+        userName: data.userName,
+        photo: data.photo,
+        hasName: !!data.name,
+        hasUserName: !!data.userName,
+        nameType: typeof data.name,
+        userNameType: typeof data.userName
+      });
       
       if (!data || !data.userId) {
         console.error('[CallRoom] Invalid user joined data:', data);
         return;
       }
 
+      const displayName = data.name || data.userName || `User-${data.userId.substring(0, 8)}`;
+      console.log('[CallRoom] ✅ Setting participant name to:', displayName);
+      console.log('[CallRoom] 📝 Name source:', data.name ? 'data.name' : data.userName ? 'data.userName' : 'fallback');
+
       setVoiceParticipants((prev) => {
         const newMap = new Map(prev);
         newMap.set(data.userId, {
           userId: data.userId,
-          name: data.name || 'Usuario',
+          name: displayName,
           photo: data.photo,
           isMuted: false,
           isSpeaking: false,
         });
+        console.log('[CallRoom] 📄 Participants map updated:', Array.from(newMap.values()));
         return newMap;
       });
     };
@@ -158,16 +186,38 @@ export const CallRoomPage: React.FC = () => {
     };
 
     const handleRemoteStream = (data: { userId: string; stream: MediaStream }) => {
-      console.log('[CallRoom] Remote stream received:', data.userId);
+      console.log('[CallRoom] 🎧 ===== REMOTE STREAM RECEIVED =====');
+      console.log('[CallRoom] 🎧 UserId:', data.userId);
+      console.log('[CallRoom] 🎵 Stream details:', {
+        id: data.stream.id,
+        active: data.stream.active,
+        tracks: data.stream.getTracks().map(t => ({
+          kind: t.kind,
+          enabled: t.enabled,
+          muted: t.muted,
+          readyState: t.readyState,
+          label: t.label
+        }))
+      });
+      
       setVoiceParticipants((prev) => {
         const newMap = new Map(prev);
         const participant = newMap.get(data.userId);
         if (participant) {
+          console.log('[CallRoom] ✅ Updating participant with stream:', data.userId, participant.name);
           participant.stream = data.stream;
           newMap.set(data.userId, { ...participant });
+          console.log('[CallRoom] 📊 Total participants with streams:', 
+            Array.from(newMap.values()).filter(p => p.stream).length
+          );
+        } else {
+          console.error('[CallRoom] ❌ Participant NOT FOUND for stream:', data.userId);
+          console.error('[CallRoom] Available participants:', Array.from(newMap.keys()));
         }
         return newMap;
       });
+      
+      console.log('[CallRoom] ===== END REMOTE STREAM =====');
     };
 
     const handleAudioStateChanged = (data: any) => {
@@ -291,6 +341,68 @@ export const CallRoomPage: React.FC = () => {
 
   return (
     <div className="h-screen bg-(--color-background) flex flex-row overflow-hidden">
+      {/* 🔊 CRITICAL: Audio elements MUST always be in DOM for audio to work */}
+      {/* These are separate from visual VoiceParticipant components */}
+      <div style={{ display: 'none' }} aria-hidden="true">
+        {/* Local audio (muted to avoid feedback) */}
+        <audio 
+          id="audio-local" 
+          autoPlay 
+          muted 
+        />
+        
+        {/* Remote audio elements - ONE PER PARTICIPANT - ALWAYS RENDERED */}
+        {Array.from(voiceParticipants.values()).map((participant) => {
+          console.log('[CallRoom] 🎵 Rendering audio element for:', participant.name, 'hasStream:', !!participant.stream);
+          return (
+            <audio 
+              key={participant.userId}
+              id={`audio-${participant.userId}`}
+              autoPlay
+              playsInline
+              ref={(audioElement) => {
+                if (audioElement && participant.stream) {
+                  console.log('[CallRoom] 🔊 Connecting audio for:', participant.name);
+                  console.log('[CallRoom] 🔊 Stream active:', participant.stream.active);
+                  console.log('[CallRoom] 🔊 Stream tracks:', participant.stream.getTracks().map(t => ({
+                    kind: t.kind,
+                    enabled: t.enabled,
+                    muted: t.muted,
+                    readyState: t.readyState
+                  })));
+                  
+                  // Force tracks to be enabled
+                  participant.stream.getTracks().forEach(track => {
+                    track.enabled = true;
+                  });
+                  
+                  // Only set if srcObject is different
+                  if (audioElement.srcObject !== participant.stream) {
+                    audioElement.srcObject = participant.stream;
+                    audioElement.volume = 1.0;
+                    audioElement.muted = false;
+                    
+                    console.log('[CallRoom] 🔊 Audio element configured:', {
+                      volume: audioElement.volume,
+                      muted: audioElement.muted,
+                      paused: audioElement.paused
+                    });
+                    
+                    audioElement.play()
+                      .then(() => {
+                        console.log('[CallRoom] ✅✅✅ Audio PLAYING for:', participant.name);
+                      })
+                      .catch((error) => {
+                        console.error('[CallRoom] ❌ Failed to play audio for:', participant.name, error);
+                      });
+                  }
+                }
+              }}
+            />
+          );
+        })}
+      </div>
+      
       {/* Sidebar - Hidden on mobile during call */}
       <div className="hidden md:flex">
         <Sidebar />
