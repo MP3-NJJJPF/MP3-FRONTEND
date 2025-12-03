@@ -58,3 +58,74 @@ export interface OnlineUser {
   name: string;
   photo?: string;
 }
+
+/**
+ * WebRTC Voice Call Types
+ */
+
+/**
+ * ICE server configuration from backend
+ */
+export interface IceServerConfig {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+}
+
+/**
+ * Meeting/Room data
+ */
+export interface Meeting {
+  meetingId: string;
+  createdBy: string;
+  participants: string[];
+  createdAt: string;
+}
+
+/**
+ * Voice participant in a call 
+ */
+export interface VoiceParticipant {
+  userId: string;
+  name: string;
+  photo?: string;
+  isMuted: boolean;
+  isSpeaking: boolean;
+  stream?: MediaStream;
+}
+
+/**
+ * WebRTC signaling events
+ */
+export interface WebRTCOffer {
+  from: string;
+  to: string;
+  offer: RTCSessionDescriptionInit;
+}
+
+export interface WebRTCAnswer {
+  from: string;
+  to: string;
+  answer: RTCSessionDescriptionInit;
+}
+
+export interface IceCandidate {
+  from: string;
+  to: string;
+  candidate: RTCIceCandidateInit;
+}
+
+export interface AudioStateChange {
+  userId: string;
+  isMuted: boolean;
+}
+
+export interface UserJoinedEvent {
+  userId: string;
+  name: string;
+  photo?: string;
+}
+
+export interface UserLeftEvent {
+  userId: string;
+}
