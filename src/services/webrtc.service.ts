@@ -29,12 +29,19 @@ class WebRTCService {
     this.currentUserId = userId;
     this.currentUserName = userName;
 
-    const voiceServerUrl = import.meta.env.VITE_VOICE_URL || 'https://server-voice-pi.onrender.com';
+    const voiceServerUrl = import.meta.env.VITE_VOICE_SERVER_URL || import.meta.env.VITE_VOICE_URL || 'https://server-voice-pi.onrender.com';
 
     try {
       // Fetch ICE servers configuration (STUN/TURN)
       console.log('[WebRTC] 🔍 Fetching ICE servers from:', `${voiceServerUrl}/api/ice-servers`);
-      const response = await fetch(`${voiceServerUrl}/api/ice-servers`);
+      
+      const response = await fetch(`${voiceServerUrl}/api/ice-servers`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+        mode: 'cors',
+      });
       
       console.log('[WebRTC] Response status:', response.status, response.statusText);
       
@@ -91,18 +98,23 @@ class WebRTCService {
           console.warn('[WebRTC] Expected format: { urls: "turn:...", username: "...", credential: "..." }');
         }
       } else {
-        const errorText = await response.text();
-        console.error('[WebRTC] ❌ Failed to fetch ICE servers');
-        console.error('[WebRTC] Status:', response.status);
-        console.error('[WebRTC] Response:', errorText);
-        this.iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+        console.warn('[WebRTC] ⚠️ Could not fetch ICE servers (status:', response.status, ')');
+        console.warn('[WebRTC] 🔄 Using fallback Google STUN servers');
+        this.iceServers = [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' }
+        ];
       }
-    } catch (error) {
-      console.error('[WebRTC] ❌ Exception fetching ICE servers:', error);
-      console.error('[WebRTC] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
-      // Use default STUN server as fallback
-      this.iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
-      console.log('[WebRTC] 🔄 Using fallback STUN server');
+    } catch (error: any) {
+      console.warn('[WebRTC] ⚠️ Could not fetch ICE servers:', error.message);
+      console.log('[WebRTC] 🔄 Using fallback Google STUN servers');
+      // Use multiple STUN servers as fallback
+      this.iceServers = [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' }
+      ];
     }
 
     // Connect to Socket.io
@@ -166,6 +178,8 @@ class WebRTCService {
 
       const displayName = data.name || data.userId;
       console.log('[WebRTC] 👤 User joined:', displayName, '(', data.userId, ')');
+      console.log('[WebRTC] 🔍 My userId:', this.currentUserId);
+      console.log('[WebRTC] 🔍 Their userId:', data.userId);
       
       this.emit('user-joined', {
         userId: data.userId,
@@ -173,17 +187,27 @@ class WebRTCService {
         photo: data.photo,
       });
       
+      // Check if we already have a peer connection (could happen on reconnect)
+      if (this.peerConnections.has(data.userId)) {
+        console.log('[WebRTC] ⚠️ Peer connection already exists for:', data.userId);
+        return;
+      }
+      
       // SOLUCIÓN RACE CONDITION: Solo el usuario con ID "menor" crea la oferta
       // Esto evita que ambos peers creen offers simultáneamente
       const shouldInitiate = this.currentUserId! < data.userId;
       
+      console.log('[WebRTC] 🎲 Should I initiate?', shouldInitiate, '(comparing:', this.currentUserId!, '<', data.userId, ')');
+      
       if (this.localStream && shouldInitiate) {
-        console.log('[WebRTC] 🎯 I should initiate (my ID < their ID), creating offer...');
-        this.createPeerConnection(data.userId);
+        console.log('[WebRTC] 🎯 YES - I should initiate (my ID < their ID), creating offer...');
+        setTimeout(() => {
+          this.createPeerConnection(data.userId);
+        }, 100); // Small delay to ensure socket is ready
       } else if (!shouldInitiate) {
-        console.log('[WebRTC] ⏸️ Waiting for offer from peer (their ID < my ID)');
+        console.log('[WebRTC] ⏸️ NO - Waiting for offer from peer (their ID < my ID)');
       } else {
-        console.warn('[WebRTC] ⚠️ No local stream available');
+        console.warn('[WebRTC] ⚠️ No local stream available yet');
       }
     });
 
@@ -406,7 +430,15 @@ class WebRTCService {
     console.log('[WebRTC] 🆕 Creating NEW peer connection for:', userId);
     console.log('[WebRTC] ICE servers config:', JSON.stringify(this.iceServers, null, 2));
 
-    const pc = new RTCPeerConnection({ iceServers: this.iceServers });
+    const configuration: RTCConfiguration = {
+      iceServers: this.iceServers,
+      iceCandidatePoolSize: 10,
+      iceTransportPolicy: 'all', // Use both STUN and TURN
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
+    };
+
+    const pc = new RTCPeerConnection(configuration);
     this.peerConnections.set(userId, pc);
 
     // Add local stream tracks
@@ -470,8 +502,20 @@ class WebRTCService {
       } else if (pc.iceConnectionState === 'failed') {
         console.error('[AUDIO] ❌ ICE FAILED with:', userId);
         console.error('[AUDIO] Connection may need restart or TURN servers');
+        
+        // Try to restart ICE
+        console.log('[WebRTC] 🔄 Attempting ICE restart...');
+        pc.restartIce();
       } else if (pc.iceConnectionState === 'disconnected') {
         console.warn('[AUDIO] ⚠️ ICE DISCONNECTED with:', userId);
+        
+        // Wait a bit and restart if still disconnected
+        setTimeout(() => {
+          if (pc.iceConnectionState === 'disconnected') {
+            console.log('[WebRTC] 🔄 Still disconnected, restarting ICE...');
+            pc.restartIce();
+          }
+        }, 3000);
       }
     };
 
@@ -483,6 +527,8 @@ class WebRTCService {
       console.log('[AUDIO] Track enabled:', event.track.enabled);
       console.log('[AUDIO] Track muted:', event.track.muted);
       console.log('[AUDIO] Track readyState:', event.track.readyState);
+      console.log('[AUDIO] Track ID:', event.track.id);
+      console.log('[AUDIO] Track label:', event.track.label);
       
       // CRÍTICO: Forzar que el track esté enabled (tracks pueden venir deshabilitados)
       event.track.enabled = true;
@@ -498,12 +544,14 @@ class WebRTCService {
         
         // CRÍTICO: Asegurar que TODOS los tracks del stream estén enabled
         remoteStream.getTracks().forEach((t, i) => {
+          const wasEnabled = t.enabled;
           t.enabled = true;
-          console.log(`[AUDIO] Track ${i}:`, t.kind, 'enabled:', t.enabled, 'muted:', t.muted);
+          console.log(`[AUDIO] Track ${i}:`, t.kind, 'was enabled:', wasEnabled, '-> now enabled:', t.enabled, 'muted:', t.muted);
         });
         
-        console.log('[AUDIO] 📢 Emitting remote-stream event...');
+        console.log('[AUDIO] 📢 Emitting remote-stream event for userId:', userId);
         this.emit('remote-stream', { userId, stream: remoteStream });
+        console.log('[AUDIO] ✅ Remote-stream event emitted');
         console.log('[AUDIO] ==== END REMOTE TRACK ====');
       } else {
         console.error('[AUDIO] ❌❌❌ NO STREAM in track event!');
@@ -590,7 +638,16 @@ class WebRTCService {
       
       if (!pc) {
         console.log('[WebRTC] 🆕 Creating peer connection for incoming offer');
-        pc = new RTCPeerConnection({ iceServers: this.iceServers });
+        
+        const configuration: RTCConfiguration = {
+          iceServers: this.iceServers,
+          iceCandidatePoolSize: 10,
+          iceTransportPolicy: 'all',
+          bundlePolicy: 'max-bundle',
+          rtcpMuxPolicy: 'require',
+        };
+        
+        pc = new RTCPeerConnection(configuration);
         this.peerConnections.set(fromUserId, pc);
 
         // Add local stream tracks
@@ -660,10 +717,10 @@ class WebRTCService {
       await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
       console.log('[WebRTC] ✅ Remote description set');
       
-      // Process pending ICE candidates if any
+      // Process pending ICE candidates if any BEFORE creating answer
       const pendingCandidates = this.pendingIceCandidates.get(fromUserId);
       if (pendingCandidates && pendingCandidates.length > 0) {
-        console.log('[WebRTC] 📦 Processing', pendingCandidates.length, 'pending ICE candidates for:', fromUserId);
+        console.log('[WebRTC] 📦 Processing', pendingCandidates.length, 'pending ICE candidates BEFORE answer');
         for (const candidate of pendingCandidates) {
           try {
             await pc.addIceCandidate(new RTCIceCandidate(candidate));
@@ -892,6 +949,59 @@ class WebRTCService {
    */
   getLocalStream(): MediaStream | null {
     return this.localStream;
+  }
+
+  /**
+   * Get peer connection stats for debugging
+   */
+  async getPeerConnectionStats(userId: string): Promise<any> {
+    const pc = this.peerConnections.get(userId);
+    if (!pc) {
+      return { error: 'No peer connection found' };
+    }
+
+    const stats = await pc.getStats();
+    const statsObj: any = {};
+    
+    stats.forEach((report) => {
+      if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+        statsObj.candidatePair = report;
+      }
+      if (report.type === 'inbound-rtp' && report.kind === 'audio') {
+        statsObj.inboundAudio = report;
+      }
+      if (report.type === 'outbound-rtp' && report.kind === 'audio') {
+        statsObj.outboundAudio = report;
+      }
+    });
+
+    return {
+      iceConnectionState: pc.iceConnectionState,
+      iceGatheringState: pc.iceGatheringState,
+      signalingState: pc.signalingState,
+      connectionState: pc.connectionState,
+      stats: statsObj,
+    };
+  }
+
+  /**
+   * Log all peer connections status
+   */
+  logAllConnectionsStatus(): void {
+    console.log('[WebRTC] 📊 ==== CONNECTION STATUS ====');
+    console.log('[WebRTC] Total peer connections:', this.peerConnections.size);
+    
+    this.peerConnections.forEach((pc, userId) => {
+      console.log(`[WebRTC] User: ${userId}`);
+      console.log('  - ICE connection:', pc.iceConnectionState);
+      console.log('  - ICE gathering:', pc.iceGatheringState);
+      console.log('  - Signaling:', pc.signalingState);
+      console.log('  - Connection:', pc.connectionState);
+      console.log('  - Senders:', pc.getSenders().length);
+      console.log('  - Receivers:', pc.getReceivers().length);
+    });
+    
+    console.log('[WebRTC] ==== END STATUS ====');
   }
 }
 
