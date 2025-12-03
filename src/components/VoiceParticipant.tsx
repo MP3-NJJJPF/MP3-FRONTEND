@@ -14,6 +14,7 @@ interface VoiceParticipantProps {
 }
 
 export const VoiceParticipant: React.FC<VoiceParticipantProps> = ({
+  userId,
   name,
   photo,
   isMuted,
@@ -22,6 +23,18 @@ export const VoiceParticipant: React.FC<VoiceParticipantProps> = ({
 }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
+
+  // Log received props
+  console.log('[VoiceParticipant] 🎭 Component render:', {
+    userId,
+    name,
+    hasPhoto: !!photo,
+    isMuted,
+    hasStream: !!stream,
+    isLocal,
+    nameType: typeof name,
+    nameValue: name
+  });
 
   // Setup audio element for remote streams
   useEffect(() => {

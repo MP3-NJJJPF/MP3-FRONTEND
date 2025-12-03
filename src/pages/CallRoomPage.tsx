@@ -127,7 +127,11 @@ export const CallRoomPage: React.FC = () => {
         userId: data.userId,
         name: data.name,
         userName: data.userName,
-        photo: data.photo
+        photo: data.photo,
+        hasName: !!data.name,
+        hasUserName: !!data.userName,
+        nameType: typeof data.name,
+        userNameType: typeof data.userName
       });
       
       if (!data || !data.userId) {
@@ -135,8 +139,9 @@ export const CallRoomPage: React.FC = () => {
         return;
       }
 
-      const displayName = data.name || data.userName || 'Usuario';
+      const displayName = data.name || data.userName || `User-${data.userId.substring(0, 8)}`;
       console.log('[CallRoom] ✅ Setting participant name to:', displayName);
+      console.log('[CallRoom] 📝 Name source:', data.name ? 'data.name' : data.userName ? 'data.userName' : 'fallback');
 
       setVoiceParticipants((prev) => {
         const newMap = new Map(prev);
