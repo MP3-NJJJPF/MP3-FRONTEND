@@ -990,15 +990,31 @@ class WebRTCService {
   logAllConnectionsStatus(): void {
     console.log('[WebRTC] 📊 ==== CONNECTION STATUS ====');
     console.log('[WebRTC] Total peer connections:', this.peerConnections.size);
+    console.log('[WebRTC] Meeting ID:', this.currentMeetingId);
+    console.log('[WebRTC] My User ID:', this.currentUserId);
     
     this.peerConnections.forEach((pc, userId) => {
-      console.log(`[WebRTC] User: ${userId}`);
+      console.log(`[WebRTC] 👤 User: ${userId}`);
       console.log('  - ICE connection:', pc.iceConnectionState);
       console.log('  - ICE gathering:', pc.iceGatheringState);
       console.log('  - Signaling:', pc.signalingState);
       console.log('  - Connection:', pc.connectionState);
       console.log('  - Senders:', pc.getSenders().length);
       console.log('  - Receivers:', pc.getReceivers().length);
+      
+      // Log senders details
+      pc.getSenders().forEach((sender, idx) => {
+        if (sender.track) {
+          console.log(`    Sender ${idx}:`, sender.track.kind, 'enabled:', sender.track.enabled);
+        }
+      });
+      
+      // Log receivers details
+      pc.getReceivers().forEach((receiver, idx) => {
+        if (receiver.track) {
+          console.log(`    Receiver ${idx}:`, receiver.track.kind, 'enabled:', receiver.track.enabled, 'muted:', receiver.track.muted);
+        }
+      });
     });
     
     console.log('[WebRTC] ==== END STATUS ====');
