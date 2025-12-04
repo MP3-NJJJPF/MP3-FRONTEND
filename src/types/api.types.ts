@@ -95,7 +95,7 @@ export interface VoiceParticipant {
 }
 
 /**
- * WebRTC signaling events
+ * WebRTC signaling events 
  */
 export interface WebRTCOffer {
   from: string;
