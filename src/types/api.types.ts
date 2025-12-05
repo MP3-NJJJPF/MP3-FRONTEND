@@ -91,6 +91,7 @@ export interface VoiceParticipant {
   photo?: string;
   isMuted: boolean;
   isSpeaking: boolean;
+  volumeLevel?: 'low' | 'medium' | 'high';
   stream?: MediaStream;
 }
 
