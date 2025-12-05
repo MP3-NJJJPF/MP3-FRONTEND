@@ -19,6 +19,7 @@ interface UnifiedParticipant {
   isInVoiceCall: boolean;
   isMuted: boolean;
   isSpeaking: boolean;
+  volumeLevel?: 'low' | 'medium' | 'high';
   stream?: MediaStream;
 }
 
@@ -37,6 +38,7 @@ export const CallRoomPage: React.FC = () => {
   const [chatMessage, setChatMessage] = useState('');
   const [messages, setMessages] = useState<{ userId: string; message: string; timestamp: string; isOwn: boolean; name?: string, photo?: string }[]>([]);
   const [isLeaveCallModalOpen, setIsLeaveCallModalOpen] = useState(false);
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
   // WebRTC voice call states
   const [isVoiceConnected, setIsVoiceConnected] = useState(false);
@@ -62,6 +64,13 @@ export const CallRoomPage: React.FC = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Reset unread messages when chat is opened
+  useEffect(() => {
+    if (isChatOpen) {
+      setUnreadMessages(0);
+    }
+  }, [isChatOpen]);
 
   useEffect(() => {
     if (!user || !roomId) return;
@@ -316,11 +325,27 @@ export const CallRoomPage: React.FC = () => {
       setIsMicMuted(isMuted);
     };
 
+    const handleSpeakingChanged = (data: { userId: string; isSpeaking: boolean; volume: number; volumeLevel: 'low' | 'medium' | 'high' }) => {
+      console.log('[CallRoom] 🎤 Speaking changed:', data.userId, 'isSpeaking:', data.isSpeaking, 'volume:', data.volume, 'level:', data.volumeLevel);
+      
+      setVoiceParticipants((prev) => {
+        const newMap = new Map(prev);
+        const participant = newMap.get(data.userId);
+        if (participant) {
+          participant.isSpeaking = data.isSpeaking;
+          participant.volumeLevel = data.volumeLevel;
+          newMap.set(data.userId, { ...participant });
+        }
+        return newMap;
+      });
+    };
+
     webrtcService.on('user-joined', handleUserJoined);
     webrtcService.on('user-left', handleUserLeft);
     webrtcService.on('remote-stream', handleRemoteStream);
     webrtcService.on('audio-state-changed', handleAudioStateChanged);
     webrtcService.on('mute-changed', handleMuteChanged);
+    webrtcService.on('speaking-changed', handleSpeakingChanged);
 
     return () => {
       webrtcService.off('user-joined', handleUserJoined);
@@ -328,6 +353,7 @@ export const CallRoomPage: React.FC = () => {
       webrtcService.off('remote-stream', handleRemoteStream);
       webrtcService.off('audio-state-changed', handleAudioStateChanged);
       webrtcService.off('mute-changed', handleMuteChanged);
+      webrtcService.off('speaking-changed', handleSpeakingChanged);
     };
   }, []);
 
@@ -356,6 +382,11 @@ export const CallRoomPage: React.FC = () => {
           photo: msg.photo,
         }
       ]);
+      
+      // Increment unread count if chat is closed and message is not from current user
+      if (!isChatOpen && msg.userId !== user?.uid) {
+        setUnreadMessages(prev => prev + 1);
+      }
     };
 
     socket.on("chat:message", handler);
@@ -363,7 +394,7 @@ export const CallRoomPage: React.FC = () => {
     return () => {
       socket.off("chat:message", handler);
     };
-  }, [user?.uid, user?.displayName]);
+  }, [user?.uid, user?.displayName, isChatOpen]);
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
@@ -557,24 +588,32 @@ export const CallRoomPage: React.FC = () => {
           <div className={`flex flex-col gap-4 transition-all min-h-0 ${isChatOpen ? 'hidden md:flex flex-1' : 'flex-1'}`}>
             {/* Main Video Feed - Only show if there are participants */}
             {totalParticipants > 0 && (
-              <div className="flex-1 relative bg-(--color-container) rounded-2xl overflow-hidden min-h-0">
-                {/* Video Placeholder */}
-                <img
-                  src={visibleParticipants[0]?.photo || "/assets/profile-placeholder.jpg"}
-                  alt={visibleParticipants[0]?.name || "Usuario"}
-                  className="w-full h-full object-cover"
-                />
+              <div className={`flex-1 relative bg-(--color-container) rounded-2xl overflow-hidden min-h-0 flex items-center justify-center transition-all ${
+                visibleParticipants[0]?.isSpeaking ? 'border-2 border-green-500' : ''
+              }`}>
+                {/* Circular Profile Image */}
+                <div className={`relative ${
+                  visibleParticipants[0]?.isSpeaking 
+                    ? `animate-speaking-pulse-${visibleParticipants[0]?.volumeLevel || 'low'}` 
+                    : ''
+                }`}>
+                  <img
+                    src={visibleParticipants[0]?.photo || "/assets/profile-placeholder.jpg"}
+                    alt={visibleParticipants[0]?.name || "Usuario"}
+                    className="w-48 h-48 md:w-64 md:h-64 rounded-full object-cover"
+                  />
+                </div>
 
                 {/* Current User in Picture-in-Picture (Mobile Only) */}
                 {user && (
-                  <div className="md:hidden absolute bottom-4 right-4 w-24 h-32 bg-(--color-container) rounded-xl overflow-hidden border-2 border-(--color-primary)">
+                  <div className="md:hidden absolute bottom-4 right-4 flex flex-col items-center gap-2">
                     <img
                       src={user.photoURL || "/assets/profile-placeholder.jpg"}
                       alt={user.displayName || "Yo"}
-                      className="w-full h-full object-cover"
+                      className="w-20 h-20 rounded-full object-cover border-2 border-(--color-primary)"
                     />
-                    <div className="absolute bottom-1 left-1 right-1 px-2 py-1 bg-black/60 rounded-full">
-                      <span className="text-xs font-medium text-white truncate block text-center">
+                    <div className="px-2 py-1 bg-black/60 rounded-full">
+                      <span className="text-xs font-medium text-white">
                         Yo
                       </span>
                     </div>
@@ -613,15 +652,19 @@ export const CallRoomPage: React.FC = () => {
                 {visibleParticipants.slice(1).map((participant) => (
                   <div
                     key={participant.userId}
-                    className={`relative w-40 h-28 bg-(--color-container) rounded-xl overflow-hidden shrink-0 transition-all ${
-                      participant.isSpeaking ? 'ring-2 ring-(--color-primary) ring-offset-2 ring-offset-(--color-background)' : ''
+                    className={`relative w-40 h-28 bg-(--color-container) rounded-xl shrink-0 transition-all flex items-center justify-center ${
+                      participant.isSpeaking ? 'border-2 border-green-500' : ''
                     }`}
                   >
-                    <img
-                      src={participant.photo || "/assets/profile-placeholder.jpg"}
-                      alt={participant.name || "Usuario"}
-                      className="w-full h-full object-cover"
-                    />
+                    <div className={`relative ${
+                      participant.isSpeaking ? `animate-speaking-pulse-${participant.volumeLevel || 'low'}` : ''
+                    }`}>
+                      <img
+                        src={participant.photo || "/assets/profile-placeholder.jpg"}
+                        alt={participant.name || "Usuario"}
+                        className="w-20 h-20 rounded-full object-cover"
+                      />
+                    </div>
 
                     {/* Voice indicator badge */}
                     {participant.isInVoiceCall && (
@@ -706,15 +749,19 @@ export const CallRoomPage: React.FC = () => {
                 {unifiedParticipants.slice(1).map((participant) => (
                   <div
                     key={participant.userId}
-                    className={`relative h-32 bg-(--color-container) rounded-xl overflow-hidden ${
-                      participant.isSpeaking ? 'ring-2 ring-(--color-primary)' : ''
+                    className={`relative h-32 bg-(--color-container) rounded-xl flex items-center justify-center transition-all ${
+                      participant.isSpeaking ? 'border-2 border-green-500' : ''
                     }`}
                   >
-                    <img
-                      src={participant.photo || "/assets/profile-placeholder.jpg"}
-                      alt={participant.name || "Usuario"}
-                      className="w-full h-full object-cover"
-                    />
+                    <div className={`relative ${
+                      participant.isSpeaking ? `animate-speaking-pulse-${participant.volumeLevel || 'low'}` : ''
+                    }`}>
+                      <img
+                        src={participant.photo || "/assets/profile-placeholder.jpg"}
+                        alt={participant.name || "Usuario"}
+                        className="w-24 h-24 rounded-full object-cover"
+                      />
+                    </div>
                     
                     {/* Voice indicator badge */}
                     {participant.isInVoiceCall && (
@@ -1027,14 +1074,29 @@ export const CallRoomPage: React.FC = () => {
           {/* Chat Toggle */}
           <button
             onClick={() => setIsChatOpen(!isChatOpen)}
-            className={`w-12 h-12 ${isChatOpen ? 'bg-(--color-primary)' : 'bg-(--color-primary)'} hover:bg-(--color-primary-hover) text-white rounded-full transition-colors flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-(--color-primary) focus:ring-offset-2`}
+            className="relative w-12 h-12 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-full transition-colors flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-(--color-primary) focus:ring-offset-2"
             aria-label={isChatOpen ? "Cerrar chat" : "Abrir chat"}
             aria-pressed={isChatOpen}
             title={isChatOpen ? "Cerrar chat" : "Abrir chat"}
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
+            {isChatOpen ? (
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                <line x1="4" y1="4" x2="20" y2="20" stroke="currentColor" strokeWidth="2" />
+              </svg>
+            ) : (
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+            )}
+            {/* Unread Messages Badge */}
+            {!isChatOpen && unreadMessages > 0 && (
+              <div className="absolute -top-1 -right-1 w-5 h-5 bg-(--color-error) rounded-full flex items-center justify-center border-2 border-(--color-background)">
+                <span className="text-xs font-bold text-white">
+                  {unreadMessages > 9 ? '9+' : unreadMessages}
+                </span>
+              </div>
+            )}
           </button>
 
           {/* End Call */}

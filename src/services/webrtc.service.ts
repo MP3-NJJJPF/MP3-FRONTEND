@@ -15,6 +15,12 @@ class WebRTCService {
   private currentUserName: string | null = null;
   private isMuted: boolean = false;
   private listeners: Map<string, Set<Function>> = new Map();
+  
+  // Audio analysis properties
+  private audioContext: AudioContext | null = null;
+  private localAnalyser: AnalyserNode | null = null;
+  private remoteAnalysers: Map<string, AnalyserNode> = new Map();
+  private volumeCheckInterval: number | null = null;
 
   /**
    * Initialize connection to voice server
@@ -323,6 +329,9 @@ class WebRTCService {
         });
       });
       
+      // Setup audio analysis for local stream
+      this.setupLocalAudioAnalysis();
+      
       this.emit('local-stream', this.localStream);
     } catch (error) {
       console.error('[WebRTC] Failed to get local stream:', error);
@@ -381,6 +390,9 @@ class WebRTCService {
       this.localStream.getTracks().forEach((track) => track.stop());
       this.localStream = null;
     }
+
+    // Cleanup audio analysis
+    this.cleanupAudioAnalysis();
 
     this.currentMeetingId = null;
     this.emit('meeting-left', {});
@@ -552,6 +564,10 @@ class WebRTCService {
         console.log('[AUDIO] 📢 Emitting remote-stream event for userId:', userId);
         this.emit('remote-stream', { userId, stream: remoteStream });
         console.log('[AUDIO] ✅ Remote-stream event emitted');
+        
+        // Setup audio analysis for remote stream
+        this.setupRemoteAudioAnalysis(userId, remoteStream);
+        
         console.log('[AUDIO] ==== END REMOTE TRACK ====');
       } else {
         console.error('[AUDIO] ❌❌❌ NO STREAM in track event!');
@@ -704,6 +720,8 @@ class WebRTCService {
           if (remoteStream) {
             console.log('[WebRTC] ✅ Emitting remote stream for:', fromUserId);
             this.emit('remote-stream', { userId: fromUserId, stream: remoteStream });
+            // Setup audio analysis for remote stream
+            this.setupRemoteAudioAnalysis(fromUserId, remoteStream);
           }
         };
 
@@ -1018,6 +1036,188 @@ class WebRTCService {
     });
     
     console.log('[WebRTC] ==== END STATUS ====');
+  }
+
+  /**
+   * Setup audio analysis for local stream
+   */
+  private setupLocalAudioAnalysis(): void {
+    if (!this.localStream) return;
+    
+    try {
+      // Create audio context if not exists
+      if (!this.audioContext) {
+        this.audioContext = new AudioContext();
+      }
+      
+      // Create analyser for local stream
+      const source = this.audioContext.createMediaStreamSource(this.localStream);
+      this.localAnalyser = this.audioContext.createAnalyser();
+      this.localAnalyser.fftSize = 256;
+      this.localAnalyser.smoothingTimeConstant = 0.8;
+      source.connect(this.localAnalyser);
+      
+      console.log('[AudioAnalysis] ✅ Local audio analysis setup complete');
+      
+      // Start monitoring if not already started
+      if (!this.volumeCheckInterval) {
+        this.startVolumeMonitoring();
+      }
+    } catch (error) {
+      console.error('[AudioAnalysis] Failed to setup local audio analysis:', error);
+    }
+  }
+
+  /**
+   * Setup audio analysis for remote stream
+   */
+  private setupRemoteAudioAnalysis(userId: string, stream: MediaStream): void {
+    if (!stream) return;
+    
+    try {
+      // Create audio context if not exists
+      if (!this.audioContext) {
+        this.audioContext = new AudioContext();
+      }
+      
+      // Create analyser for remote stream
+      const source = this.audioContext.createMediaStreamSource(stream);
+      const analyser = this.audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.8;
+      source.connect(analyser);
+      
+      this.remoteAnalysers.set(userId, analyser);
+      
+      console.log('[AudioAnalysis] ✅ Remote audio analysis setup for:', userId);
+      
+      // Start monitoring if not already started
+      if (!this.volumeCheckInterval) {
+        this.startVolumeMonitoring();
+      }
+    } catch (error) {
+      console.error('[AudioAnalysis] Failed to setup remote audio analysis for', userId, ':', error);
+    }
+  }
+
+  /**
+   * Start monitoring audio volume levels
+   */
+  private startVolumeMonitoring(): void {
+    if (this.volumeCheckInterval) return;
+    
+    console.log('[AudioAnalysis] Starting volume monitoring...');
+    
+    this.volumeCheckInterval = window.setInterval(() => {
+      // Check local audio
+      if (this.localAnalyser && this.currentUserId && !this.isMuted) {
+        const volume = this.getVolumeFromAnalyser(this.localAnalyser);
+        const isSpeaking = volume > 0.02; // Threshold for speaking detection
+        
+        if (isSpeaking) {
+          // Determine volume level for dynamic animation
+          let volumeLevel: 'low' | 'medium' | 'high' = 'low';
+          if (volume > 0.15) {
+            volumeLevel = 'high';
+          } else if (volume > 0.08) {
+            volumeLevel = 'medium';
+          }
+          
+          this.emit('speaking-changed', { 
+            userId: this.currentUserId, 
+            isSpeaking: true, 
+            volume,
+            volumeLevel 
+          });
+        } else {
+          // Emit false when not speaking to stop animation
+          this.emit('speaking-changed', { 
+            userId: this.currentUserId, 
+            isSpeaking: false, 
+            volume: 0,
+            volumeLevel: 'low'
+          });
+        }
+      }
+      
+      // Check remote audio
+      this.remoteAnalysers.forEach((analyser, userId) => {
+        const volume = this.getVolumeFromAnalyser(analyser);
+        const isSpeaking = volume > 0.02; // Threshold for speaking detection
+        
+        if (isSpeaking) {
+          // Determine volume level for dynamic animation
+          let volumeLevel: 'low' | 'medium' | 'high' = 'low';
+          if (volume > 0.15) {
+            volumeLevel = 'high';
+          } else if (volume > 0.08) {
+            volumeLevel = 'medium';
+          }
+          
+          this.emit('speaking-changed', { 
+            userId, 
+            isSpeaking, 
+            volume,
+            volumeLevel 
+          });
+        } else {
+          // Emit false when not speaking to stop animation
+          this.emit('speaking-changed', { 
+            userId, 
+            isSpeaking: false, 
+            volume: 0,
+            volumeLevel: 'low'
+          });
+        }
+      });
+    }, 100); // Check every 100ms
+  }
+
+  /**
+   * Get volume level from analyser
+   */
+  private getVolumeFromAnalyser(analyser: AnalyserNode): number {
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    analyser.getByteFrequencyData(dataArray);
+    
+    // Calculate average volume
+    let sum = 0;
+    for (let i = 0; i < bufferLength; i++) {
+      sum += dataArray[i];
+    }
+    const average = sum / bufferLength;
+    
+    // Normalize to 0-1 range
+    return average / 255;
+  }
+
+  /**
+   * Stop volume monitoring
+   */
+  private stopVolumeMonitoring(): void {
+    if (this.volumeCheckInterval) {
+      clearInterval(this.volumeCheckInterval);
+      this.volumeCheckInterval = null;
+      console.log('[AudioAnalysis] Volume monitoring stopped');
+    }
+  }
+
+  /**
+   * Cleanup audio analysis resources
+   */
+  private cleanupAudioAnalysis(): void {
+    this.stopVolumeMonitoring();
+    
+    this.localAnalyser = null;
+    this.remoteAnalysers.clear();
+    
+    if (this.audioContext && this.audioContext.state !== 'closed') {
+      this.audioContext.close();
+      this.audioContext = null;
+    }
+    
+    console.log('[AudioAnalysis] Cleanup complete');
   }
 }
 
