@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { Sidebar } from '../components/Sidebar';
 import { LeaveCallModal } from '../components/LeaveCallModal';
@@ -6,7 +6,22 @@ import { socket } from '../sockets/socketManager';
 import { useAuthStore } from '../stores/useAuthStore';
 import { OnlineUser, VoiceParticipant as VoiceParticipantType } from '../types/api.types';
 import { webrtcService } from '../services/webrtc.service';
-import { VoiceParticipant } from '../components/VoiceParticipant';
+
+/**
+ * Unified participant combining chat presence and voice state
+ */
+interface UnifiedParticipant {
+  userId: string;
+  name: string;
+  photo?: string;
+  socketId?: string;
+  // Voice state
+  isInVoiceCall: boolean;
+  isMuted: boolean;
+  isSpeaking: boolean;
+  volumeLevel?: 'low' | 'medium' | 'high';
+  stream?: MediaStream;
+}
 
 /**
  * CallRoomPage Component
@@ -16,10 +31,14 @@ import { VoiceParticipant } from '../components/VoiceParticipant';
 export const CallRoomPage: React.FC = () => {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
+  
+  console.log('[CallRoom] 🔄 Component render - Room:', roomId);
+  
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessage, setChatMessage] = useState('');
   const [messages, setMessages] = useState<{ userId: string; message: string; timestamp: string; isOwn: boolean; name?: string, photo?: string }[]>([]);
   const [isLeaveCallModalOpen, setIsLeaveCallModalOpen] = useState(false);
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
   // WebRTC voice call states
   const [isVoiceConnected, setIsVoiceConnected] = useState(false);
@@ -46,6 +65,13 @@ export const CallRoomPage: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
+  // Reset unread messages when chat is opened
+  useEffect(() => {
+    if (isChatOpen) {
+      setUnreadMessages(0);
+    }
+  }, [isChatOpen]);
+
   useEffect(() => {
     if (!user || !roomId) return;
     const photo = user.photoURL && user.photoURL.length > 5
@@ -64,6 +90,68 @@ export const CallRoomPage: React.FC = () => {
 
 
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
+
+  // Unified participants list - combines chat and voice
+  const unifiedParticipants = useMemo<UnifiedParticipant[]>(() => {
+    console.log('[CallRoom] 🔄 Unifying participants...');
+    console.log('[CallRoom] 📊 Online users:', onlineUsers.length, onlineUsers.map(u => ({ id: u.userId, name: u.name })));
+    console.log('[CallRoom] 🎤 Voice participants:', voiceParticipants.size, Array.from(voiceParticipants.values()).map(v => ({ id: v.userId, name: v.name, hasStream: !!v.stream })));
+    
+    const participantsMap = new Map<string, UnifiedParticipant>();
+
+    // First, add all online users from chat
+    onlineUsers.forEach(user => {
+      participantsMap.set(user.userId, {
+        userId: user.userId,
+        name: user.name,
+        photo: user.photo,
+        socketId: user.socketId,
+        isInVoiceCall: false,
+        isMuted: false,
+        isSpeaking: false,
+      });
+      console.log('[CallRoom] ➕ Added chat user:', user.name);
+    });
+
+    // Then, merge voice participants data
+    voiceParticipants.forEach((voiceUser, userId) => {
+      const existing = participantsMap.get(userId);
+      if (existing) {
+        // Update existing user with voice data
+        existing.isInVoiceCall = true;
+        existing.isMuted = voiceUser.isMuted;
+        existing.isSpeaking = voiceUser.isSpeaking;
+        existing.stream = voiceUser.stream;
+        console.log('[CallRoom] 🔗 Merged voice data for:', existing.name, {
+          isMuted: existing.isMuted,
+          hasStream: !!existing.stream,
+          streamActive: existing.stream?.active
+        });
+      } else {
+        // Add voice-only participant (shouldn't happen normally)
+        console.log('[CallRoom] ⚠️ Voice-only participant (no chat):', voiceUser.name);
+        participantsMap.set(userId, {
+          userId: voiceUser.userId,
+          name: voiceUser.name,
+          photo: voiceUser.photo,
+          isInVoiceCall: true,
+          isMuted: voiceUser.isMuted,
+          isSpeaking: voiceUser.isSpeaking,
+          stream: voiceUser.stream,
+        });
+      }
+    });
+
+    const result = Array.from(participantsMap.values());
+    console.log('[CallRoom] ✅ Unified participants:', result.length, result.map(p => ({
+      name: p.name,
+      inVoice: p.isInVoiceCall,
+      muted: p.isMuted,
+      hasStream: !!p.stream
+    })));
+    
+    return result;
+  }, [onlineUsers, voiceParticipants]);
 
   // Initialize voice connection
   useEffect(() => {
@@ -237,11 +325,27 @@ export const CallRoomPage: React.FC = () => {
       setIsMicMuted(isMuted);
     };
 
+    const handleSpeakingChanged = (data: { userId: string; isSpeaking: boolean; volume: number; volumeLevel: 'low' | 'medium' | 'high' }) => {
+      console.log('[CallRoom] 🎤 Speaking changed:', data.userId, 'isSpeaking:', data.isSpeaking, 'volume:', data.volume, 'level:', data.volumeLevel);
+      
+      setVoiceParticipants((prev) => {
+        const newMap = new Map(prev);
+        const participant = newMap.get(data.userId);
+        if (participant) {
+          participant.isSpeaking = data.isSpeaking;
+          participant.volumeLevel = data.volumeLevel;
+          newMap.set(data.userId, { ...participant });
+        }
+        return newMap;
+      });
+    };
+
     webrtcService.on('user-joined', handleUserJoined);
     webrtcService.on('user-left', handleUserLeft);
     webrtcService.on('remote-stream', handleRemoteStream);
     webrtcService.on('audio-state-changed', handleAudioStateChanged);
     webrtcService.on('mute-changed', handleMuteChanged);
+    webrtcService.on('speaking-changed', handleSpeakingChanged);
 
     return () => {
       webrtcService.off('user-joined', handleUserJoined);
@@ -249,6 +353,7 @@ export const CallRoomPage: React.FC = () => {
       webrtcService.off('remote-stream', handleRemoteStream);
       webrtcService.off('audio-state-changed', handleAudioStateChanged);
       webrtcService.off('mute-changed', handleMuteChanged);
+      webrtcService.off('speaking-changed', handleSpeakingChanged);
     };
   }, []);
 
@@ -277,6 +382,11 @@ export const CallRoomPage: React.FC = () => {
           photo: msg.photo,
         }
       ]);
+      
+      // Increment unread count if chat is closed and message is not from current user
+      if (!isChatOpen && msg.userId !== user?.uid) {
+        setUnreadMessages(prev => prev + 1);
+      }
     };
 
     socket.on("chat:message", handler);
@@ -284,7 +394,7 @@ export const CallRoomPage: React.FC = () => {
     return () => {
       socket.off("chat:message", handler);
     };
-  }, [user?.uid, user?.displayName]);
+  }, [user?.uid, user?.displayName, isChatOpen]);
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
@@ -327,11 +437,21 @@ export const CallRoomPage: React.FC = () => {
   };
 
   // Calculate participants to display
-  const totalParticipants = onlineUsers.length;
-  const maxVisibleParticipants = 4;
-  const visibleParticipants = onlineUsers.slice(0, maxVisibleParticipants);
+  const totalParticipants = unifiedParticipants.length;
+  const maxVisibleParticipants = 6;
+  const visibleParticipants = unifiedParticipants.slice(0, maxVisibleParticipants);
   const remainingParticipants = Math.max(0, totalParticipants - maxVisibleParticipants);
   const showMoreButton = totalParticipants > 5;
+  
+  // Count users in voice call
+  const voiceCallCount = unifiedParticipants.filter(p => p.isInVoiceCall).length;
+  
+  console.log('[CallRoom] 👥 Display stats:', {
+    totalParticipants,
+    voiceCallCount,
+    isVoiceConnected,
+    voiceParticipantsMapSize: voiceParticipants.size
+  });
 
   // Truncate participant name
   const truncateName = (name: string, maxLength: number = 15) => {
@@ -352,55 +472,101 @@ export const CallRoomPage: React.FC = () => {
         />
         
         {/* Remote audio elements - ONE PER PARTICIPANT - ALWAYS RENDERED */}
-        {Array.from(voiceParticipants.values()).map((participant) => {
-          console.log('[CallRoom] 🎵 Rendering audio element for:', participant.name, 'hasStream:', !!participant.stream);
-          return (
-            <audio 
-              key={participant.userId}
-              id={`audio-${participant.userId}`}
-              autoPlay
-              playsInline
-              ref={(audioElement) => {
-                if (audioElement && participant.stream) {
-                  console.log('[CallRoom] 🔊 Connecting audio for:', participant.name);
+        {(() => {
+          const voiceParticipantsArray = Array.from(voiceParticipants.values());
+          console.log('[CallRoom] 🎵 === AUDIO RENDER CYCLE ===');
+          console.log('[CallRoom] 🎵 Total voice participants:', voiceParticipantsArray.length);
+          
+          return voiceParticipantsArray.map((participant) => {
+            console.log('[CallRoom] 🎵 Rendering audio element for:', {
+              name: participant.name,
+              userId: participant.userId,
+              hasStream: !!participant.stream,
+              streamActive: participant.stream?.active,
+              streamId: participant.stream?.id,
+              trackCount: participant.stream?.getTracks().length
+            });
+            
+            return (
+              <audio 
+                key={participant.userId}
+                id={`audio-${participant.userId}`}
+                autoPlay
+                playsInline
+                ref={(audioElement) => {
+                  if (!audioElement) {
+                    console.log('[CallRoom] ⚠️ Audio element is null for:', participant.name);
+                    return;
+                  }
+                  
+                  if (!participant.stream) {
+                    console.log('[CallRoom] ⚠️ No stream for:', participant.name);
+                    return;
+                  }
+                  
+                  console.log('[CallRoom] 🔊 === CONNECTING AUDIO ===');
+                  console.log('[CallRoom] 🔊 Participant:', participant.name);
                   console.log('[CallRoom] 🔊 Stream active:', participant.stream.active);
+                  console.log('[CallRoom] 🔊 Stream ID:', participant.stream.id);
                   console.log('[CallRoom] 🔊 Stream tracks:', participant.stream.getTracks().map(t => ({
                     kind: t.kind,
                     enabled: t.enabled,
                     muted: t.muted,
-                    readyState: t.readyState
+                    readyState: t.readyState,
+                    label: t.label,
+                    id: t.id
                   })));
                   
                   // Force tracks to be enabled
                   participant.stream.getTracks().forEach(track => {
+                    console.log('[CallRoom] 🔧 Enabling track:', track.kind, track.id);
                     track.enabled = true;
                   });
                   
                   // Only set if srcObject is different
                   if (audioElement.srcObject !== participant.stream) {
+                    console.log('[CallRoom] 🔌 Setting srcObject for:', participant.name);
                     audioElement.srcObject = participant.stream;
                     audioElement.volume = 1.0;
                     audioElement.muted = false;
                     
                     console.log('[CallRoom] 🔊 Audio element configured:', {
+                      id: audioElement.id,
                       volume: audioElement.volume,
                       muted: audioElement.muted,
-                      paused: audioElement.paused
+                      paused: audioElement.paused,
+                      readyState: audioElement.readyState,
+                      networkState: audioElement.networkState
                     });
                     
                     audioElement.play()
                       .then(() => {
                         console.log('[CallRoom] ✅✅✅ Audio PLAYING for:', participant.name);
+                        console.log('[CallRoom] ✅ Element state after play:', {
+                          paused: audioElement.paused,
+                          currentTime: audioElement.currentTime,
+                          volume: audioElement.volume
+                        });
                       })
                       .catch((error) => {
-                        console.error('[CallRoom] ❌ Failed to play audio for:', participant.name, error);
+                        console.error('[CallRoom] ❌❌❌ Failed to play audio for:', participant.name);
+                        console.error('[CallRoom] ❌ Error details:', error);
+                        console.error('[CallRoom] ❌ Element state:', {
+                          paused: audioElement.paused,
+                          readyState: audioElement.readyState,
+                          networkState: audioElement.networkState
+                        });
                       });
+                  } else {
+                    console.log('[CallRoom] ℹ️ Stream already set for:', participant.name);
                   }
-                }
-              }}
+                  
+                  console.log('[CallRoom] 🔊 === END CONNECTING AUDIO ===');
+                }}
             />
           );
-        })}
+        });
+        })()}
       </div>
       
       {/* Sidebar - Hidden on mobile during call */}
@@ -422,57 +588,103 @@ export const CallRoomPage: React.FC = () => {
           <div className={`flex flex-col gap-4 transition-all min-h-0 ${isChatOpen ? 'hidden md:flex flex-1' : 'flex-1'}`}>
             {/* Main Video Feed - Only show if there are participants */}
             {totalParticipants > 0 && (
-              <div className="flex-1 relative bg-(--color-container) rounded-2xl overflow-hidden min-h-0">
-                {/* Video Placeholder */}
-                <img
-                  src={onlineUsers[0]?.photo || "/assets/profile-placeholder.jpg"}
-                  alt={onlineUsers[0]?.name || "Usuario"}
-                  className="w-full h-full object-cover"
-                />
+              <div className={`flex-1 relative bg-(--color-container) rounded-2xl overflow-hidden min-h-0 flex items-center justify-center transition-all ${
+                visibleParticipants[0]?.isSpeaking ? 'border-2 border-green-500' : ''
+              }`}>
+                {/* Circular Profile Image */}
+                <div className={`relative ${
+                  visibleParticipants[0]?.isSpeaking 
+                    ? `animate-speaking-pulse-${visibleParticipants[0]?.volumeLevel || 'low'}` 
+                    : ''
+                }`}>
+                  <img
+                    src={visibleParticipants[0]?.photo || "/assets/profile-placeholder.jpg"}
+                    alt={visibleParticipants[0]?.name || "Usuario"}
+                    className="w-48 h-48 md:w-64 md:h-64 rounded-full object-cover"
+                  />
+                </div>
 
                 {/* Current User in Picture-in-Picture (Mobile Only) */}
                 {user && (
-                  <div className="md:hidden absolute bottom-4 right-4 w-24 h-32 bg-(--color-container) rounded-xl overflow-hidden border-2 border-(--color-primary)">
+                  <div className="md:hidden absolute bottom-4 right-4 flex flex-col items-center gap-2">
                     <img
                       src={user.photoURL || "/assets/profile-placeholder.jpg"}
                       alt={user.displayName || "Yo"}
-                      className="w-full h-full object-cover"
+                      className="w-20 h-20 rounded-full object-cover border-2 border-(--color-primary)"
                     />
-                    <div className="absolute bottom-1 left-1 right-1 px-2 py-1 bg-black/60 rounded-full">
-                      <span className="text-xs font-medium text-white truncate block text-center">
+                    <div className="px-2 py-1 bg-black/60 rounded-full">
+                      <span className="text-xs font-medium text-white">
                         Yo
                       </span>
                     </div>
                   </div>
                 )}
 
-                {/* Participant Name Badge */}
-                <div className="absolute bottom-4 left-4 px-4 py-2 bg-black/60 rounded-full">
-                  <span className="text-sm font-medium text-white">
-                    {truncateName(onlineUsers[0]?.name || "Usuario")}
-                  </span>
+                {/* Participant Name Badge with Voice Indicator */}
+                <div className="absolute bottom-4 left-4 flex items-center gap-2">
+                  <div className="px-4 py-2 bg-black/60 rounded-full flex items-center gap-2">
+                    <span className="text-sm font-medium text-white">
+                      {truncateName(visibleParticipants[0]?.name || "Usuario")}
+                    </span>
+                    {visibleParticipants[0]?.isInVoiceCall && (
+                      <div className="flex items-center">
+                        {visibleParticipants[0].isMuted ? (
+                          <svg className="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+                            <line x1="4" y1="4" x2="16" y2="16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                          </svg>
+                        ) : (
+                          <svg className="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* Participants Gallery - Hidden on mobile, shown on tablet/desktop */}
+            {/* Unified Participants Gallery - Hidden on mobile, shown on tablet/desktop */}
             {totalParticipants > 1 && (
               <div className="hidden md:flex items-center gap-3 pb-4 overflow-x-auto shrink-0">
                 {/* Show participants from index 1 onwards (excluding the main one) */}
-                {visibleParticipants.slice(1).map((u) => (
+                {visibleParticipants.slice(1).map((participant) => (
                   <div
-                    key={u.socketId}
-                    className="relative w-40 h-28 bg-(--color-container) rounded-xl overflow-hidden shrink-0"
+                    key={participant.userId}
+                    className={`relative w-40 h-28 bg-(--color-container) rounded-xl shrink-0 transition-all flex items-center justify-center ${
+                      participant.isSpeaking ? 'border-2 border-green-500' : ''
+                    }`}
                   >
-                    <img
-                      src={u.photo || "/assets/profile-placeholder.jpg"}
-                      alt={u.name || "Usuario"}
-                      className="w-full h-full object-cover"
-                    />
+                    <div className={`relative ${
+                      participant.isSpeaking ? `animate-speaking-pulse-${participant.volumeLevel || 'low'}` : ''
+                    }`}>
+                      <img
+                        src={participant.photo || "/assets/profile-placeholder.jpg"}
+                        alt={participant.name || "Usuario"}
+                        className="w-20 h-20 rounded-full object-cover"
+                      />
+                    </div>
+
+                    {/* Voice indicator badge */}
+                    {participant.isInVoiceCall && (
+                      <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center">
+                        {participant.isMuted ? (
+                          <svg className="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+                            <line x1="4" y1="4" x2="16" y2="16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                          </svg>
+                        ) : (
+                          <svg className="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </div>
+                    )}
 
                     <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/60 rounded-full max-w-[calc(100%-1rem)]">
                       <span className="text-xs font-medium text-white truncate block">
-                        {truncateName(u.name || "Usuario", 12)}
+                        {truncateName(participant.name || "Usuario", 12)}
                       </span>
                     </div>
                   </div>
@@ -493,37 +705,11 @@ export const CallRoomPage: React.FC = () => {
               </div>
             )}
 
-            {/* Voice Participants - WebRTC */}
-            {isVoiceConnected && voiceParticipants.size > 0 && (
-              <div className="hidden md:flex items-center gap-3 pb-4 overflow-x-auto shrink-0">
-                <div className="text-white text-sm font-semibold px-3 py-2 bg-(--color-container) rounded-xl">
-                  En llamada ({voiceParticipants.size + 1})
-                </div>
-                
-                {/* Local user (yourself) */}
-                {user && (
-                  <VoiceParticipant
-                    userId={user.uid}
-                    name={user.displayName || 'Tú'}
-                    photo={user.photoURL || undefined}
-                    isMuted={isMicMuted}
-                    stream={webrtcService.getLocalStream() || undefined}
-                    isLocal={true}
-                  />
-                )}
-
-                {/* Remote participants */}
-                {Array.from(voiceParticipants.values()).map((participant) => (
-                  <VoiceParticipant
-                    key={participant.userId}
-                    userId={participant.userId}
-                    name={participant.name}
-                    photo={participant.photo}
-                    isMuted={participant.isMuted}
-                    stream={participant.stream}
-                    isLocal={false}
-                  />
-                ))}
+            {/* Hidden voice connection keeper - ensures audio elements stay reactive */}
+            {isVoiceConnected && voiceCallCount > 0 && (
+              <div style={{ display: 'none' }} aria-hidden="true">
+                {/* This hidden div keeps voiceCallCount reactive without visual output */}
+                <span>{voiceCallCount}</span>
               </div>
             )}
 
@@ -560,19 +746,42 @@ export const CallRoomPage: React.FC = () => {
                   scrollbarColor: 'rgba(251, 251, 251, 0.7) transparent',
                 }}
               >
-                {onlineUsers.slice(1).map((u) => (
+                {unifiedParticipants.slice(1).map((participant) => (
                   <div
-                    key={u.socketId}
-                    className="relative h-32 bg-(--color-container) rounded-xl overflow-hidden"
+                    key={participant.userId}
+                    className={`relative h-32 bg-(--color-container) rounded-xl flex items-center justify-center transition-all ${
+                      participant.isSpeaking ? 'border-2 border-green-500' : ''
+                    }`}
                   >
-                    <img
-                      src={u.photo || "/assets/profile-placeholder.jpg"}
-                      alt={u.name || "Usuario"}
-                      className="w-full h-full object-cover"
-                    />
+                    <div className={`relative ${
+                      participant.isSpeaking ? `animate-speaking-pulse-${participant.volumeLevel || 'low'}` : ''
+                    }`}>
+                      <img
+                        src={participant.photo || "/assets/profile-placeholder.jpg"}
+                        alt={participant.name || "Usuario"}
+                        className="w-24 h-24 rounded-full object-cover"
+                      />
+                    </div>
+                    
+                    {/* Voice indicator badge */}
+                    {participant.isInVoiceCall && (
+                      <div className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center">
+                        {participant.isMuted ? (
+                          <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+                            <line x1="4" y1="4" x2="16" y2="16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                          </svg>
+                        ) : (
+                          <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </div>
+                    )}
+                    
                     <div className="absolute bottom-2 left-2 px-3 py-1 bg-black/60 rounded-full">
                       <span className="text-sm font-medium text-white">
-                        {truncateName(u.name || "Usuario", 20)}
+                        {truncateName(participant.name || "Usuario", 20)}
                       </span>
                     </div>
                   </div>
@@ -865,14 +1074,29 @@ export const CallRoomPage: React.FC = () => {
           {/* Chat Toggle */}
           <button
             onClick={() => setIsChatOpen(!isChatOpen)}
-            className={`w-12 h-12 ${isChatOpen ? 'bg-(--color-primary)' : 'bg-(--color-primary)'} hover:bg-(--color-primary-hover) text-white rounded-full transition-colors flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-(--color-primary) focus:ring-offset-2`}
+            className="relative w-12 h-12 bg-(--color-primary) hover:bg-(--color-primary-hover) text-white rounded-full transition-colors flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-(--color-primary) focus:ring-offset-2"
             aria-label={isChatOpen ? "Cerrar chat" : "Abrir chat"}
             aria-pressed={isChatOpen}
             title={isChatOpen ? "Cerrar chat" : "Abrir chat"}
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
+            {isChatOpen ? (
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                <line x1="4" y1="4" x2="20" y2="20" stroke="currentColor" strokeWidth="2" />
+              </svg>
+            ) : (
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+            )}
+            {/* Unread Messages Badge */}
+            {!isChatOpen && unreadMessages > 0 && (
+              <div className="absolute -top-1 -right-1 w-5 h-5 bg-(--color-error) rounded-full flex items-center justify-center border-2 border-(--color-background)">
+                <span className="text-xs font-bold text-white">
+                  {unreadMessages > 9 ? '9+' : unreadMessages}
+                </span>
+              </div>
+            )}
           </button>
 
           {/* End Call */}

@@ -91,11 +91,12 @@ export interface VoiceParticipant {
   photo?: string;
   isMuted: boolean;
   isSpeaking: boolean;
+  volumeLevel?: 'low' | 'medium' | 'high';
   stream?: MediaStream;
 }
 
 /**
- * WebRTC signaling events
+ * WebRTC signaling events 
  */
 export interface WebRTCOffer {
   from: string;
