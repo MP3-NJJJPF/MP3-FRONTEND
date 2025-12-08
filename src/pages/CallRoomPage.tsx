@@ -557,6 +557,20 @@ export const CallRoomPage: React.FC = () => {
   const handleToggleMute = () => {
     const newMutedState = webrtcService.toggleMute();
     setIsMicMuted(newMutedState);
+    
+    // Update local user state in voice participants
+    if (user?.uid) {
+      setVoiceParticipants((prev) => {
+        const newMap = new Map(prev);
+        const localParticipant = newMap.get(user.uid);
+        if (localParticipant) {
+          localParticipant.isMuted = newMutedState;
+          newMap.set(user.uid, { ...localParticipant });
+          console.log('[CallRoom] 🎤 Updated local mute state:', newMutedState);
+        }
+        return newMap;
+      });
+    }
   };
 
   // Toggle video on/off
