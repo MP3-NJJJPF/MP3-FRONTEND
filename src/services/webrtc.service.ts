@@ -426,6 +426,16 @@ class WebRTCService {
       track.enabled = !this.isMuted;
     });
 
+    // If muted, immediately emit speaking-changed to stop animation
+    if (this.isMuted && this.currentUserId) {
+      this.emit('speaking-changed', {
+        userId: this.currentUserId,
+        isSpeaking: false,
+        volume: 0,
+        volumeLevel: 'low'
+      });
+    }
+
     // Notify server
     if (this.socket && this.currentMeetingId && this.currentUserId) {
       this.socket.emit('toggle-audio', {
