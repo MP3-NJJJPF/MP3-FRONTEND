@@ -22,6 +22,10 @@ class WebRTCService {
   private remoteAnalysers: Map<string, AnalyserNode> = new Map();
   private volumeCheckInterval: number | null = null;
 
+  // Video properties
+  private videoStream: MediaStream | null = null;
+  private isVideoEnabled: boolean = false;
+
   /**
    * Initialize connection to voice server
    */
@@ -275,6 +279,12 @@ class WebRTCService {
       this.emit('audio-state-changed', data);
     });
 
+    // Video state changed
+    this.socket.on('video-state-changed', (data: any) => {
+      console.log('[WebRTC] 📹 Video state changed:', data);
+      this.emit('video-state-changed', data);
+    });
+
     // Error events
     this.socket.on('error', (error) => {
       console.error('[WebRTC] ❌ Socket error:', error);
@@ -390,6 +400,13 @@ class WebRTCService {
       this.localStream.getTracks().forEach((track) => track.stop());
       this.localStream = null;
     }
+    
+    // Stop video stream
+    if (this.videoStream) {
+      this.videoStream.getTracks().forEach((track) => track.stop());
+      this.videoStream = null;
+    }
+    this.isVideoEnabled = false;
 
     // Cleanup audio analysis
     this.cleanupAudioAnalysis();
@@ -431,6 +448,157 @@ class WebRTCService {
   }
 
   /**
+   * Toggle video on/off
+   */
+  async toggleVideo(): Promise<boolean> {
+    try {
+      if (this.isVideoEnabled) {
+        // Disable video
+        console.log('[WebRTC] Disabling video...');
+        
+        if (this.videoStream) {
+          this.videoStream.getTracks().forEach(track => {
+            track.stop();
+            console.log('[VIDEO] Track stopped:', track.id);
+          });
+          this.videoStream = null;
+        }
+        
+        // Remove video tracks from all peer connections and renegotiate
+        const renegotiatePromises: Promise<void>[] = [];
+        
+        this.peerConnections.forEach((pc, userId) => {
+          const senders = pc.getSenders();
+          senders.forEach(sender => {
+            if (sender.track && sender.track.kind === 'video') {
+              pc.removeTrack(sender);
+              console.log('[VIDEO] Removed video track from peer:', userId);
+            }
+          });
+          
+          // Renegotiate connection after removing track
+          const renegotiate = async () => {
+            try {
+              console.log('[VIDEO] 🔄 Renegotiating connection after removing video with:', userId);
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              
+              if (this.socket && this.currentMeetingId && this.currentUserId) {
+                this.socket.emit('webrtc-offer', {
+                  from: this.currentUserId,
+                  to: userId,
+                  offer: pc.localDescription!.toJSON(),
+                  meetingId: this.currentMeetingId
+                });
+                console.log('[VIDEO] ✅ Renegotiation offer sent to:', userId);
+              }
+            } catch (error) {
+              console.error('[VIDEO] ❌ Failed to renegotiate with:', userId, error);
+            }
+          };
+          
+          renegotiatePromises.push(renegotiate());
+        });
+        
+        // Wait for all renegotiations to complete
+        await Promise.all(renegotiatePromises);
+        
+        this.isVideoEnabled = false;
+        console.log('[WebRTC] Video disabled and renegotiated with all peers');
+      } else {
+        // Enable video
+        console.log('[WebRTC] Enabling video...');
+        
+        this.videoStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 }
+          },
+          audio: false
+        });
+        
+        console.log('[VIDEO] Video stream acquired:', {
+          id: this.videoStream.id,
+          tracks: this.videoStream.getTracks().length
+        });
+        
+        // Add video tracks to all existing peer connections and renegotiate
+        const renegotiatePromises: Promise<void>[] = [];
+        
+        this.peerConnections.forEach((pc, userId) => {
+          this.videoStream!.getVideoTracks().forEach(track => {
+            console.log('[VIDEO] Adding video track to peer:', userId);
+            pc.addTrack(track, this.videoStream!);
+          });
+          
+          // Renegotiate connection after adding track
+          const renegotiate = async () => {
+            try {
+              console.log('[VIDEO] 🔄 Renegotiating connection with:', userId);
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              
+              if (this.socket && this.currentMeetingId && this.currentUserId) {
+                this.socket.emit('webrtc-offer', {
+                  from: this.currentUserId,
+                  to: userId,
+                  offer: pc.localDescription!.toJSON(),
+                  meetingId: this.currentMeetingId
+                });
+                console.log('[VIDEO] ✅ Renegotiation offer sent to:', userId);
+              }
+            } catch (error) {
+              console.error('[VIDEO] ❌ Failed to renegotiate with:', userId, error);
+            }
+          };
+          
+          renegotiatePromises.push(renegotiate());
+        });
+        
+        // Wait for all renegotiations to complete
+        await Promise.all(renegotiatePromises);
+        
+        this.isVideoEnabled = true;
+        console.log('[WebRTC] Video enabled and renegotiated with all peers');
+      }
+      
+      // Notify server and other participants
+      if (this.socket && this.currentMeetingId && this.currentUserId) {
+        this.socket.emit('toggle-video', {
+          meetingId: this.currentMeetingId,
+          userId: this.currentUserId,
+          isVideoEnabled: this.isVideoEnabled,
+        });
+      }
+      
+      this.emit('video-changed', { 
+        isVideoEnabled: this.isVideoEnabled,
+        stream: this.videoStream 
+      });
+      
+      return this.isVideoEnabled;
+    } catch (error) {
+      console.error('[WebRTC] Failed to toggle video:', error);
+      throw new Error('No se pudo acceder a la cámara');
+    }
+  }
+
+  /**
+   * Get current video state
+   */
+  isVideoEnabledState(): boolean {
+    return this.isVideoEnabled;
+  }
+
+  /**
+   * Get video stream
+   */
+  getVideoStream(): MediaStream | null {
+    return this.videoStream;
+  }
+
+  /**
    * Create peer connection for a user
    */
   private async createPeerConnection(userId: string): Promise<RTCPeerConnection> {
@@ -468,18 +636,34 @@ class WebRTCService {
         pc.addTrack(track, this.localStream!);
         console.log(`[AUDIO] ✅ Track ${index} added to peer connection`);
       });
-      
-      // Verify tracks were added
-      const senders = pc.getSenders();
-      console.log('[AUDIO] 📊 Peer connection has', senders.length, 'senders');
-      senders.forEach((sender, idx) => {
-        if (sender.track) {
-          console.log(`[AUDIO] Sender ${idx}:`, sender.track.kind, 'enabled:', sender.track.enabled);
-        }
-      });
     } else {
       console.error('[AUDIO] ❌ NO LOCAL STREAM!');
     }
+    
+    // Add video tracks if video is enabled
+    if (this.videoStream && this.isVideoEnabled) {
+      const videoTracks = this.videoStream.getVideoTracks();
+      console.log('[VIDEO] 📹 Adding', videoTracks.length, 'local video tracks to:', userId);
+      videoTracks.forEach((track, index) => {
+        console.log(`[VIDEO] Track ${index}:`, {
+          kind: track.kind,
+          enabled: track.enabled,
+          readyState: track.readyState,
+          label: track.label
+        });
+        pc.addTrack(track, this.videoStream!);
+        console.log(`[VIDEO] ✅ Track ${index} added to peer connection`);
+      });
+    }
+    
+    // Verify tracks were added
+    const senders = pc.getSenders();
+    console.log('[TRACKS] 📊 Peer connection has', senders.length, 'senders');
+    senders.forEach((sender, idx) => {
+      if (sender.track) {
+        console.log(`[TRACKS] Sender ${idx}:`, sender.track.kind, 'enabled:', sender.track.enabled);
+      }
+    });
 
     // Handle ICE candidates - CRÍTICO PARA ESTABLECER CONEXIÓN
     pc.onicecandidate = (event) => {
@@ -531,46 +715,63 @@ class WebRTCService {
       }
     };
 
-    // Handle remote stream - CRÍTICO PARA ESCUCHAR AUDIO
+    // Handle remote stream - CRÍTICO PARA ESCUCHAR AUDIO Y VER VIDEO
     pc.ontrack = (event) => {
-      console.log('[AUDIO] 🎵 ==== REMOTE TRACK RECEIVED ====');
-      console.log('[AUDIO] From:', userId);
-      console.log('[AUDIO] Track kind:', event.track.kind);
-      console.log('[AUDIO] Track enabled:', event.track.enabled);
-      console.log('[AUDIO] Track muted:', event.track.muted);
-      console.log('[AUDIO] Track readyState:', event.track.readyState);
-      console.log('[AUDIO] Track ID:', event.track.id);
-      console.log('[AUDIO] Track label:', event.track.label);
+      console.log('[TRACK] 🎵 ==== REMOTE TRACK RECEIVED ====');
+      console.log('[TRACK] From:', userId);
+      console.log('[TRACK] Track kind:', event.track.kind);
+      console.log('[TRACK] Track enabled:', event.track.enabled);
+      console.log('[TRACK] Track muted:', event.track.muted);
+      console.log('[TRACK] Track readyState:', event.track.readyState);
+      console.log('[TRACK] Track ID:', event.track.id);
+      console.log('[TRACK] Track label:', event.track.label);
       
       // CRÍTICO: Forzar que el track esté enabled (tracks pueden venir deshabilitados)
       event.track.enabled = true;
-      console.log('[AUDIO] ✅ Track enabled set to TRUE');
+      console.log('[TRACK] ✅ Track enabled set to TRUE');
       
-      console.log('[AUDIO] Streams count:', event.streams.length);
+      console.log('[TRACK] Streams count:', event.streams.length);
       
       const remoteStream = event.streams[0];
       if (remoteStream) {
-        console.log('[AUDIO] ✅ Stream ID:', remoteStream.id);
-        console.log('[AUDIO] Stream active:', remoteStream.active);
-        console.log('[AUDIO] Stream tracks:', remoteStream.getTracks().length);
+        console.log('[TRACK] ✅ Stream ID:', remoteStream.id);
+        console.log('[TRACK] Stream active:', remoteStream.active);
+        console.log('[TRACK] Stream tracks:', remoteStream.getTracks().length);
         
         // CRÍTICO: Asegurar que TODOS los tracks del stream estén enabled
         remoteStream.getTracks().forEach((t, i) => {
           const wasEnabled = t.enabled;
           t.enabled = true;
-          console.log(`[AUDIO] Track ${i}:`, t.kind, 'was enabled:', wasEnabled, '-> now enabled:', t.enabled, 'muted:', t.muted);
+          console.log(`[TRACK] Track ${i}:`, t.kind, 'was enabled:', wasEnabled, '-> now enabled:', t.enabled, 'muted:', t.muted);
         });
         
-        console.log('[AUDIO] 📢 Emitting remote-stream event for userId:', userId);
-        this.emit('remote-stream', { userId, stream: remoteStream });
-        console.log('[AUDIO] ✅ Remote-stream event emitted');
+        // Separate audio and video tracks
+        const audioTracks = remoteStream.getAudioTracks();
+        const videoTracks = remoteStream.getVideoTracks();
         
-        // Setup audio analysis for remote stream
-        this.setupRemoteAudioAnalysis(userId, remoteStream);
+        console.log('[TRACK] Audio tracks:', audioTracks.length);
+        console.log('[TRACK] Video tracks:', videoTracks.length);
         
-        console.log('[AUDIO] ==== END REMOTE TRACK ====');
+        // Emit audio stream if has audio tracks
+        if (audioTracks.length > 0) {
+          console.log('[AUDIO] 📢 Emitting remote-stream event for userId:', userId);
+          this.emit('remote-stream', { userId, stream: remoteStream });
+          console.log('[AUDIO] ✅ Remote-stream event emitted');
+          
+          // Setup audio analysis for remote stream
+          this.setupRemoteAudioAnalysis(userId, remoteStream);
+        }
+        
+        // Emit video stream if has video tracks
+        if (videoTracks.length > 0) {
+          console.log('[VIDEO] 📢 Emitting remote-video-stream event for userId:', userId);
+          this.emit('remote-video-stream', { userId, stream: remoteStream });
+          console.log('[VIDEO] ✅ Remote-video-stream event emitted');
+        }
+        
+        console.log('[TRACK] ==== END REMOTE TRACK ====');
       } else {
-        console.error('[AUDIO] ❌❌❌ NO STREAM in track event!');
+        console.error('[TRACK] ❌❌❌ NO STREAM in track event!');
       }
     };
 
@@ -668,9 +869,9 @@ class WebRTCService {
 
         // Add local stream tracks
         if (this.localStream) {
-          const tracks = this.localStream.getTracks();
-          console.log('[WebRTC] 🎤 Adding', tracks.length, 'local tracks (handleOffer)');
-          tracks.forEach((track, index) => {
+          const audioTracks = this.localStream.getAudioTracks();
+          console.log('[WebRTC] 🎤 Adding', audioTracks.length, 'local audio tracks (handleOffer)');
+          audioTracks.forEach((track, index) => {
             console.log(`[WebRTC] Track ${index}:`, {
               kind: track.kind,
               enabled: track.enabled,
@@ -681,11 +882,27 @@ class WebRTCService {
             pc!.addTrack(track, this.localStream!);
             console.log(`[WebRTC] ✅ Track ${index} added`);
           });
-          
-          // Verify tracks were added
-          const senders = pc.getSenders();
-          console.log('[WebRTC] 📊 Peer connection has', senders.length, 'senders (handleOffer)');
         }
+        
+        // Add video tracks if video is enabled
+        if (this.videoStream && this.isVideoEnabled) {
+          const videoTracks = this.videoStream.getVideoTracks();
+          console.log('[VIDEO] 📹 Adding', videoTracks.length, 'local video tracks (handleOffer)');
+          videoTracks.forEach((track, index) => {
+            console.log(`[VIDEO] Track ${index}:`, {
+              kind: track.kind,
+              enabled: track.enabled,
+              readyState: track.readyState,
+              label: track.label
+            });
+            pc!.addTrack(track, this.videoStream!);
+            console.log(`[VIDEO] ✅ Track ${index} added`);
+          });
+        }
+        
+        // Verify tracks were added
+        const senders = pc.getSenders();
+        console.log('[WebRTC] 📊 Peer connection has', senders.length, 'senders (handleOffer)');
 
         // Handle ICE candidates
         pc.onicecandidate = (event) => {
@@ -714,14 +931,32 @@ class WebRTCService {
 
         // Handle remote stream
         pc.ontrack = (event) => {
-          console.log('[WebRTC] 🎵 Remote track received (handleOffer) from:', fromUserId);
-          console.log('[WebRTC] Track kind:', event.track.kind);
+          console.log('[TRACK] 🎵 Remote track received (handleOffer) from:', fromUserId);
+          console.log('[TRACK] Track kind:', event.track.kind);
+          
+          event.track.enabled = true;
+          
           const remoteStream = event.streams[0];
           if (remoteStream) {
-            console.log('[WebRTC] ✅ Emitting remote stream for:', fromUserId);
-            this.emit('remote-stream', { userId: fromUserId, stream: remoteStream });
-            // Setup audio analysis for remote stream
-            this.setupRemoteAudioAnalysis(fromUserId, remoteStream);
+            const audioTracks = remoteStream.getAudioTracks();
+            const videoTracks = remoteStream.getVideoTracks();
+            
+            console.log('[TRACK] Audio tracks:', audioTracks.length);
+            console.log('[TRACK] Video tracks:', videoTracks.length);
+            
+            // Emit audio stream
+            if (audioTracks.length > 0) {
+              console.log('[AUDIO] ✅ Emitting remote audio stream for:', fromUserId);
+              this.emit('remote-stream', { userId: fromUserId, stream: remoteStream });
+              // Setup audio analysis for remote stream
+              this.setupRemoteAudioAnalysis(fromUserId, remoteStream);
+            }
+            
+            // Emit video stream
+            if (videoTracks.length > 0) {
+              console.log('[VIDEO] ✅ Emitting remote video stream for:', fromUserId);
+              this.emit('remote-video-stream', { userId: fromUserId, stream: remoteStream });
+            }
           }
         };
 

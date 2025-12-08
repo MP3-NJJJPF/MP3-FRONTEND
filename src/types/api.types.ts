@@ -93,6 +93,8 @@ export interface VoiceParticipant {
   isSpeaking: boolean;
   volumeLevel?: 'low' | 'medium' | 'high';
   stream?: MediaStream;
+  isVideoEnabled?: boolean;
+  videoStream?: MediaStream;
 }
 
 /**

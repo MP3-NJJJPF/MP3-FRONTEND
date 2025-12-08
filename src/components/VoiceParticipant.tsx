@@ -11,6 +11,8 @@ interface VoiceParticipantProps {
   isMuted: boolean;
   stream?: MediaStream;
   isLocal?: boolean;
+  isVideoEnabled?: boolean;
+  videoStream?: MediaStream;
 }
 
 export const VoiceParticipant: React.FC<VoiceParticipantProps> = ({
@@ -20,8 +22,11 @@ export const VoiceParticipant: React.FC<VoiceParticipantProps> = ({
   isMuted,
   stream,
   isLocal = false,
+  isVideoEnabled = false,
+  videoStream,
 }) => {
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const videoRef = React.useRef<HTMLVideoElement>(null);
 
   // Log received props
   console.log('[VoiceParticipant] 🎭 Component render:', {
@@ -31,6 +36,8 @@ export const VoiceParticipant: React.FC<VoiceParticipantProps> = ({
     isMuted,
     hasStream: !!stream,
     isLocal,
+    isVideoEnabled,
+    hasVideoStream: !!videoStream,
     nameType: typeof name,
     nameValue: name
   });
@@ -43,6 +50,17 @@ export const VoiceParticipant: React.FC<VoiceParticipantProps> = ({
     
     console.log('[VoiceParticipant] 📊 Visualizing participant:', name, 'hasStream:', !!stream);
   }, [stream, isLocal, name]);
+
+  // Setup video stream
+  useEffect(() => {
+    if (videoRef.current && videoStream) {
+      console.log('[VoiceParticipant] 📹 Setting up video for:', name);
+      videoRef.current.srcObject = videoStream;
+      videoRef.current.play().catch(err => {
+        console.error('[VoiceParticipant] Failed to play video:', err);
+      });
+    }
+  }, [videoStream, name]);
 
   // Audio level detection
   useEffect(() => {
@@ -90,11 +108,22 @@ export const VoiceParticipant: React.FC<VoiceParticipantProps> = ({
           isSpeaking ? 'ring-2 ring-(--color-primary) ring-offset-2 ring-offset-(--color-background)' : ''
         }`}
       >
-        <img
-          src={photo || '/assets/profile-placeholder.jpg'}
-          alt={name}
-          className="w-full h-full object-cover"
-        />
+        {/* Show video if enabled and stream available, otherwise show photo */}
+        {isVideoEnabled && videoStream ? (
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted={isLocal}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <img
+            src={photo || '/assets/profile-placeholder.jpg'}
+            alt={name}
+            className="w-full h-full object-cover"
+          />
+        )}
 
         {/* Name badge */}
         <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/60 rounded-full max-w-[calc(100%-1rem)] flex items-center gap-1">
