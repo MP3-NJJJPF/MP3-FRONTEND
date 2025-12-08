@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 /**
  * VoiceParticipant Component
@@ -14,24 +14,35 @@ interface VoiceParticipantProps {
 }
 
 export const VoiceParticipant: React.FC<VoiceParticipantProps> = ({
+  userId,
   name,
   photo,
   isMuted,
   stream,
   isLocal = false,
 }) => {
-  const audioRef = useRef<HTMLAudioElement>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
+
+  // Log received props
+  console.log('[VoiceParticipant] 🎭 Component render:', {
+    userId,
+    name,
+    hasPhoto: !!photo,
+    isMuted,
+    hasStream: !!stream,
+    isLocal,
+    nameType: typeof name,
+    nameValue: name
+  });
 
   // Setup audio element for remote streams
   useEffect(() => {
-    if (!isLocal && stream && audioRef.current) {
-      audioRef.current.srcObject = stream;
-      audioRef.current.play().catch(error => {
-        console.error('[VoiceParticipant] Failed to play audio:', error);
-      });
-    }
-  }, [stream, isLocal]);
+    // SKIP: Audio is now handled centrally in CallRoomPage
+    // This component only handles visualization
+    if (isLocal || !stream) return;
+    
+    console.log('[VoiceParticipant] 📊 Visualizing participant:', name, 'hasStream:', !!stream);
+  }, [stream, isLocal, name]);
 
   // Audio level detection
   useEffect(() => {
@@ -71,8 +82,7 @@ export const VoiceParticipant: React.FC<VoiceParticipantProps> = ({
 
   return (
     <div className="relative">
-      {/* Hidden audio element for remote streams */}
-      {!isLocal && <audio ref={audioRef} autoPlay />}
+      {/* Audio is now handled centrally in CallRoomPage */}
       
       {/* Participant card */}
       <div

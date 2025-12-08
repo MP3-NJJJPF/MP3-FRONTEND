@@ -83,7 +83,7 @@ export interface Meeting {
 }
 
 /**
- * Voice participant in a call
+ * Voice participant in a call 
  */
 export interface VoiceParticipant {
   userId: string;
@@ -91,11 +91,12 @@ export interface VoiceParticipant {
   photo?: string;
   isMuted: boolean;
   isSpeaking: boolean;
+  volumeLevel?: 'low' | 'medium' | 'high';
   stream?: MediaStream;
 }
 
 /**
- * WebRTC signaling events
+ * WebRTC signaling events 
  */
 export interface WebRTCOffer {
   from: string;
