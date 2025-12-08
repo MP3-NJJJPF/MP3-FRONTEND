@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { Sidebar } from '../components/Sidebar';
 import { LeaveCallModal } from '../components/LeaveCallModal';
+import { ParticipantVideo } from '../components/ParticipantVideo';
 import { socket } from '../sockets/socketManager';
 import { useAuthStore } from '../stores/useAuthStore';
 import { OnlineUser, VoiceParticipant as VoiceParticipantType } from '../types/api.types';
@@ -21,6 +22,9 @@ interface UnifiedParticipant {
   isSpeaking: boolean;
   volumeLevel?: 'low' | 'medium' | 'high';
   stream?: MediaStream;
+  // Video state
+  isVideoEnabled?: boolean;
+  videoStream?: MediaStream;
 }
 
 /**
@@ -46,6 +50,10 @@ export const CallRoomPage: React.FC = () => {
   const [voiceParticipants, setVoiceParticipants] = useState<Map<string, VoiceParticipantType>>(new Map());
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  
+  // Video states
+  const [isVideoEnabled, setIsVideoEnabled] = useState(false);
+  const [localVideoStream, setLocalVideoStream] = useState<MediaStream | null>(null);
 
   const { user } = useAuthStore();
 
@@ -122,10 +130,14 @@ export const CallRoomPage: React.FC = () => {
         existing.isMuted = voiceUser.isMuted;
         existing.isSpeaking = voiceUser.isSpeaking;
         existing.stream = voiceUser.stream;
+        existing.isVideoEnabled = voiceUser.isVideoEnabled;
+        existing.videoStream = voiceUser.videoStream;
         console.log('[CallRoom] 🔗 Merged voice data for:', existing.name, {
           isMuted: existing.isMuted,
           hasStream: !!existing.stream,
-          streamActive: existing.stream?.active
+          streamActive: existing.stream?.active,
+          isVideoEnabled: existing.isVideoEnabled,
+          hasVideoStream: !!existing.videoStream
         });
       } else {
         // Add voice-only participant (shouldn't happen normally)
@@ -138,6 +150,8 @@ export const CallRoomPage: React.FC = () => {
           isMuted: voiceUser.isMuted,
           isSpeaking: voiceUser.isSpeaking,
           stream: voiceUser.stream,
+          isVideoEnabled: voiceUser.isVideoEnabled,
+          videoStream: voiceUser.videoStream,
         });
       }
     });
@@ -183,6 +197,23 @@ export const CallRoomPage: React.FC = () => {
         if (!isMounted) return;
 
         setIsVoiceConnected(true);
+        
+        // Add current user to voice participants
+        setVoiceParticipants((prev) => {
+          const newMap = new Map(prev);
+          if (!newMap.has(user.uid)) {
+            console.log('[CallRoom] Adding current user to voice participants');
+            newMap.set(user.uid, {
+              userId: user.uid,
+              name: user.displayName || 'Yo',
+              photo: user.photoURL || undefined,
+              isMuted: false,
+              isSpeaking: false,
+            });
+          }
+          return newMap;
+        });
+        
         console.log('[CallRoom] Voice call initialized successfully');
       } catch (error: any) {
         console.error('[CallRoom] Voice call error:', error);
@@ -219,6 +250,41 @@ export const CallRoomPage: React.FC = () => {
       });
     });
   }, [voiceParticipants]);
+
+  // Sync local video state with voice participants
+  useEffect(() => {
+    if (!user?.uid || !isVoiceConnected) {
+      console.log('[CallRoom] 📹 Skipping video sync - not connected or no user');
+      return;
+    }
+    
+    setVoiceParticipants((prev) => {
+      const newMap = new Map(prev);
+      const localParticipant = newMap.get(user.uid);
+      
+      if (localParticipant) {
+        console.log('[CallRoom] 📹 Syncing local video state:', {
+          userId: user.uid,
+          isVideoEnabled,
+          hasVideoStream: !!localVideoStream,
+          streamId: localVideoStream?.id,
+          previousVideoEnabled: localParticipant.isVideoEnabled,
+          previousHasStream: !!localParticipant.videoStream
+        });
+        
+        // Create a new participant object to force re-render
+        newMap.set(user.uid, {
+          ...localParticipant,
+          isVideoEnabled: isVideoEnabled,
+          videoStream: localVideoStream || undefined,
+        });
+      } else {
+        console.warn('[CallRoom] 📹 Local participant not found in voice participants!');
+      }
+      
+      return newMap;
+    });
+  }, [isVideoEnabled, localVideoStream, user?.uid, isVoiceConnected]);
 
   // Setup voice event listeners
   useEffect(() => {
@@ -308,6 +374,32 @@ export const CallRoomPage: React.FC = () => {
       console.log('[CallRoom] ===== END REMOTE STREAM =====');
     };
 
+    const handleRemoteVideoStream = (data: { userId: string; stream: MediaStream }) => {
+      console.log('[CallRoom] 📹 ===== REMOTE VIDEO STREAM RECEIVED =====');
+      console.log('[CallRoom] 📹 UserId:', data.userId);
+      console.log('[CallRoom] 📹 Stream details:', {
+        id: data.stream.id,
+        active: data.stream.active,
+        videoTracks: data.stream.getVideoTracks().length
+      });
+      
+      setVoiceParticipants((prev) => {
+        const newMap = new Map(prev);
+        const participant = newMap.get(data.userId);
+        if (participant) {
+          console.log('[CallRoom] ✅ Updating participant with video stream:', data.userId, participant.name);
+          participant.videoStream = data.stream;
+          participant.isVideoEnabled = true;
+          newMap.set(data.userId, { ...participant });
+        } else {
+          console.error('[CallRoom] ❌ Participant NOT FOUND for video stream:', data.userId);
+        }
+        return newMap;
+      });
+      
+      console.log('[CallRoom] ===== END REMOTE VIDEO STREAM =====');
+    };
+
     const handleAudioStateChanged = (data: any) => {
       console.log('[CallRoom] Audio state changed:', data);
       setVoiceParticipants((prev) => {
@@ -340,20 +432,51 @@ export const CallRoomPage: React.FC = () => {
       });
     };
 
+    const handleVideoChanged = (data: { isVideoEnabled: boolean; stream: MediaStream | null }) => {
+      console.log('[CallRoom] 📹 Local video changed:', data.isVideoEnabled);
+      setIsVideoEnabled(data.isVideoEnabled);
+      setLocalVideoStream(data.stream);
+    };
+
+    const handleVideoStateChanged = (data: any) => {
+      console.log('[CallRoom] 📹 Remote video state changed:', data);
+      setVoiceParticipants((prev) => {
+        const newMap = new Map(prev);
+        const participant = newMap.get(data.userId);
+        if (participant) {
+          participant.isVideoEnabled = data.isVideoEnabled;
+          // If video is disabled, clear the video stream
+          if (!data.isVideoEnabled) {
+            console.log('[CallRoom] 🧹 Clearing video stream for user:', data.userId);
+            participant.videoStream = undefined;
+          }
+          // Video stream will come through remote-video-stream event when enabled
+          newMap.set(data.userId, { ...participant });
+        }
+        return newMap;
+      });
+    };
+
     webrtcService.on('user-joined', handleUserJoined);
     webrtcService.on('user-left', handleUserLeft);
     webrtcService.on('remote-stream', handleRemoteStream);
+    webrtcService.on('remote-video-stream', handleRemoteVideoStream);
     webrtcService.on('audio-state-changed', handleAudioStateChanged);
     webrtcService.on('mute-changed', handleMuteChanged);
     webrtcService.on('speaking-changed', handleSpeakingChanged);
+    webrtcService.on('video-changed', handleVideoChanged);
+    webrtcService.on('video-state-changed', handleVideoStateChanged);
 
     return () => {
       webrtcService.off('user-joined', handleUserJoined);
       webrtcService.off('user-left', handleUserLeft);
       webrtcService.off('remote-stream', handleRemoteStream);
+      webrtcService.off('remote-video-stream', handleRemoteVideoStream);
       webrtcService.off('audio-state-changed', handleAudioStateChanged);
       webrtcService.off('mute-changed', handleMuteChanged);
       webrtcService.off('speaking-changed', handleSpeakingChanged);
+      webrtcService.off('video-changed', handleVideoChanged);
+      webrtcService.off('video-state-changed', handleVideoStateChanged);
     };
   }, []);
 
@@ -434,6 +557,36 @@ export const CallRoomPage: React.FC = () => {
   const handleToggleMute = () => {
     const newMutedState = webrtcService.toggleMute();
     setIsMicMuted(newMutedState);
+    
+    // Update local user state in voice participants
+    if (user?.uid) {
+      setVoiceParticipants((prev) => {
+        const newMap = new Map(prev);
+        const localParticipant = newMap.get(user.uid);
+        if (localParticipant) {
+          localParticipant.isMuted = newMutedState;
+          newMap.set(user.uid, { ...localParticipant });
+          console.log('[CallRoom] 🎤 Updated local mute state:', newMutedState);
+        }
+        return newMap;
+      });
+    }
+  };
+
+  // Toggle video on/off
+  const handleToggleVideo = async () => {
+    try {
+      const newVideoState = await webrtcService.toggleVideo();
+      setIsVideoEnabled(newVideoState);
+      if (newVideoState) {
+        setLocalVideoStream(webrtcService.getVideoStream());
+      } else {
+        setLocalVideoStream(null);
+      }
+    } catch (error: any) {
+      console.error('[CallRoom] Failed to toggle video:', error);
+      alert(error.message || 'No se pudo acceder a la cámara');
+    }
   };
 
   // Calculate participants to display
@@ -588,60 +741,32 @@ export const CallRoomPage: React.FC = () => {
           <div className={`flex flex-col gap-4 transition-all min-h-0 ${isChatOpen ? 'hidden md:flex flex-1' : 'flex-1'}`}>
             {/* Main Video Feed - Only show if there are participants */}
             {totalParticipants > 0 && (
-              <div className={`flex-1 relative bg-(--color-container) rounded-2xl overflow-hidden min-h-0 flex items-center justify-center transition-all ${
-                visibleParticipants[0]?.isSpeaking ? 'border-2 border-green-500' : ''
-              }`}>
-                {/* Circular Profile Image */}
-                <div className={`relative ${
-                  visibleParticipants[0]?.isSpeaking 
-                    ? `animate-speaking-pulse-${visibleParticipants[0]?.volumeLevel || 'low'}` 
-                    : ''
-                }`}>
-                  <img
-                    src={visibleParticipants[0]?.photo || "/assets/profile-placeholder.jpg"}
-                    alt={visibleParticipants[0]?.name || "Usuario"}
-                    className="w-48 h-48 md:w-64 md:h-64 rounded-full object-cover"
-                  />
-                </div>
+              <div className="flex-1 relative rounded-2xl overflow-hidden min-h-0 flex items-center justify-center">
+                <ParticipantVideo 
+                  participant={visibleParticipants[0]}
+                  currentUserId={user?.uid}
+                  size="large"
+                />
 
                 {/* Current User in Picture-in-Picture (Mobile Only) */}
-                {user && (
-                  <div className="md:hidden absolute bottom-4 right-4 flex flex-col items-center gap-2">
-                    <img
-                      src={user.photoURL || "/assets/profile-placeholder.jpg"}
-                      alt={user.displayName || "Yo"}
-                      className="w-20 h-20 rounded-full object-cover border-2 border-(--color-primary)"
+                {user && visibleParticipants[0]?.userId !== user.uid && (
+                  <div className="md:hidden absolute bottom-4 right-4">
+                    <ParticipantVideo 
+                      participant={{
+                        userId: user.uid,
+                        name: user.displayName || 'Yo',
+                        photo: user.photoURL || undefined,
+                        isMuted: isMicMuted,
+                        isSpeaking: false,
+                        isInVoiceCall: isVoiceConnected,
+                        isVideoEnabled: isVideoEnabled,
+                        videoStream: localVideoStream || undefined,
+                      }}
+                      currentUserId={user.uid}
+                      size="small"
                     />
-                    <div className="px-2 py-1 bg-black/60 rounded-full">
-                      <span className="text-xs font-medium text-white">
-                        Yo
-                      </span>
-                    </div>
                   </div>
                 )}
-
-                {/* Participant Name Badge with Voice Indicator */}
-                <div className="absolute bottom-4 left-4 flex items-center gap-2">
-                  <div className="px-4 py-2 bg-black/60 rounded-full flex items-center gap-2">
-                    <span className="text-sm font-medium text-white">
-                      {truncateName(visibleParticipants[0]?.name || "Usuario")}
-                    </span>
-                    {visibleParticipants[0]?.isInVoiceCall && (
-                      <div className="flex items-center">
-                        {visibleParticipants[0].isMuted ? (
-                          <svg className="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-                            <line x1="4" y1="4" x2="16" y2="16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                          </svg>
-                        ) : (
-                          <svg className="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-                          </svg>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
               </div>
             )}
 
@@ -650,44 +775,12 @@ export const CallRoomPage: React.FC = () => {
               <div className="hidden md:flex items-center gap-3 pb-4 overflow-x-auto shrink-0">
                 {/* Show participants from index 1 onwards (excluding the main one) */}
                 {visibleParticipants.slice(1).map((participant) => (
-                  <div
+                  <ParticipantVideo 
                     key={participant.userId}
-                    className={`relative w-40 h-28 bg-(--color-container) rounded-xl shrink-0 transition-all flex items-center justify-center ${
-                      participant.isSpeaking ? 'border-2 border-green-500' : ''
-                    }`}
-                  >
-                    <div className={`relative ${
-                      participant.isSpeaking ? `animate-speaking-pulse-${participant.volumeLevel || 'low'}` : ''
-                    }`}>
-                      <img
-                        src={participant.photo || "/assets/profile-placeholder.jpg"}
-                        alt={participant.name || "Usuario"}
-                        className="w-20 h-20 rounded-full object-cover"
-                      />
-                    </div>
-
-                    {/* Voice indicator badge */}
-                    {participant.isInVoiceCall && (
-                      <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center">
-                        {participant.isMuted ? (
-                          <svg className="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-                            <line x1="4" y1="4" x2="16" y2="16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                          </svg>
-                        ) : (
-                          <svg className="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-                          </svg>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/60 rounded-full max-w-[calc(100%-1rem)]">
-                      <span className="text-xs font-medium text-white truncate block">
-                        {truncateName(participant.name || "Usuario", 12)}
-                      </span>
-                    </div>
-                  </div>
+                    participant={participant}
+                    currentUserId={user?.uid}
+                    size="small"
+                  />
                 ))}
 
                 {/* More Participants Button - Only show when there are more than 5 participants */}
@@ -1059,16 +1152,30 @@ export const CallRoomPage: React.FC = () => {
             )}
           </button>
 
-          {/* Camera - Deshabilitado por ahora */}
+          {/* Camera */}
           <button 
-            disabled
-            className="w-12 h-12 bg-(--color-primary) opacity-50 cursor-not-allowed text-white rounded-full transition-colors flex items-center justify-center"
-            aria-label="Cámara (no disponible)"
-            title="Cámara (no disponible)"
+            onClick={handleToggleVideo}
+            disabled={!isVoiceConnected}
+            className={`w-12 h-12 ${
+              isVideoEnabled 
+                ? 'bg-(--color-primary) hover:bg-(--color-primary-hover)' 
+                : 'bg-gray-600 hover:bg-gray-700'
+            } ${
+              !isVoiceConnected ? 'opacity-50 cursor-not-allowed' : ''
+            } text-white rounded-full transition-colors flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-(--color-primary) focus:ring-offset-2`}
+            aria-label={isVideoEnabled ? "Desactivar cámara" : "Activar cámara"}
+            title={isVideoEnabled ? "Desactivar cámara" : "Activar cámara"}
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
+            {isVideoEnabled ? (
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            ) : (
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                <line x1="2" y1="2" x2="22" y2="22" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+            )}
           </button>
 
           {/* Chat Toggle */}
