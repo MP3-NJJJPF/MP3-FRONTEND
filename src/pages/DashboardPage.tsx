@@ -152,7 +152,7 @@ export const DashboardPage: React.FC = () => {
               Unirse a una Reunión
             </h2>
             <p className="text-gray-400 mb-6 leading-relaxed">
-              Usa un código o enlace para entrar a una reunión.
+              Usa un código para entrar a una reunión.
             </p>
 
             {/* Form */}
