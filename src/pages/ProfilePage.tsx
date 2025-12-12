@@ -108,7 +108,7 @@ export const ProfilePage: React.FC = () => {
         </div>
 
         {/* Profile Card */}
-        <div className="w-full max-w-md bg-(--color-container) rounded-2xl p-8">
+        <div className="w-full max-w-md bg-(--color-container) rounded-2xl p-6 sm:p-8">
           {/* Success Message */}
           {successMessage && (
             <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
@@ -124,9 +124,9 @@ export const ProfilePage: React.FC = () => {
           )}
 
           {/* User Info Section */}
-          <div className="flex items-start gap-6 mb-6">
+          <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-6 mb-6">
             {/* Profile Photo */}
-            <div className="shrink-0">
+            <div className="shrink-0 mx-auto sm:mx-0">
               <img
                 src={authUser?.photoURL && authUser.photoURL.trim() !== "" ? authUser.photoURL : '/assets/profile-placeholder.jpg'}
                 alt={authUser?.displayName || 'Usuario'}
@@ -135,20 +135,20 @@ export const ProfilePage: React.FC = () => {
             </div>
 
             {/* User Details */}
-            <div className="flex-1">
+            <div className="flex-1 w-full min-w-0">
               <div className="mb-4">
                 <p className="text-sm text-gray-400 mb-1">Nombre Completo</p>
-                <p className="text-lg font-semibold text-white">{authUser?.displayName || 'N/A'}</p>
+                <p className="text-base sm:text-lg font-semibold text-white wrap-break-word">{authUser?.displayName || 'N/A'}</p>
               </div>
 
               <div className="mb-4">
                 <p className="text-sm text-gray-400 mb-1">Correo</p>
-                <p className="text-base text-white">{authUser?.email || 'N/A'}</p>
+                <p className="text-sm sm:text-base text-white break-all">{authUser?.email || 'N/A'}</p>
               </div>
 
               <div>
                 <p className="text-sm text-gray-400 mb-1">Edad</p>
-                <p className="text-base text-white">{authUser?.age ? `${authUser.age} años` : 'N/A'}</p>
+                <p className="text-sm sm:text-base text-white">{authUser?.age ? `${authUser.age} años` : 'N/A'}</p>
               </div>
             </div>
           </div>
