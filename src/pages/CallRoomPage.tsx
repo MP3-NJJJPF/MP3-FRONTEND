@@ -57,6 +57,9 @@ export const CallRoomPage: React.FC = () => {
   // Video states
   const [isVideoEnabled, setIsVideoEnabled] = useState(false);
   const [localVideoStream, setLocalVideoStream] = useState<MediaStream | null>(null);
+  
+  // Track last person who spoke (for persistent focus)
+  const [lastSpeakerId, setLastSpeakerId] = useState<string | null>(null);
 
   const { user } = useAuthStore();
 
@@ -446,8 +449,9 @@ export const CallRoomPage: React.FC = () => {
           participant.volumeLevel = data.volumeLevel;
           newMap.set(data.userId, { ...participant });
           
-          // Announce when someone starts speaking (not when they stop)
+          // Update last speaker when someone STARTS speaking (not current user)
           if (wasNotSpeaking && data.isSpeaking && data.userId !== user?.uid) {
+            setLastSpeakerId(data.userId);
             setSrAnnouncement(`${participant.name} está hablando`);
           }
         }
@@ -623,8 +627,9 @@ export const CallRoomPage: React.FC = () => {
   
   // Prioritize participants: 
   // 1. Never show current user as main focus if there are others
-  // 2. Show who's speaking first
-  // 3. Then show others
+  // 2. Show last speaker first (persistent until someone else speaks)
+  // 3. Then show who's currently speaking
+  // 4. Then show others
   const sortedParticipants = useMemo(() => {
     const participants = [...unifiedParticipants];
     
@@ -633,9 +638,15 @@ export const CallRoomPage: React.FC = () => {
     const currentUser = participants.find(p => p.userId === user?.uid);
     
     if (otherParticipants.length > 0) {
-      // Sort others: speaking first, then others
+      // Sort others with priority: last speaker > currently speaking > others
       otherParticipants.sort((a, b) => {
-        // Speaking participants first
+        // Last speaker always first (if exists and not current user)
+        if (lastSpeakerId) {
+          if (a.userId === lastSpeakerId) return -1;
+          if (b.userId === lastSpeakerId) return 1;
+        }
+        
+        // Currently speaking participants next
         if (a.isSpeaking && !b.isSpeaking) return -1;
         if (!a.isSpeaking && b.isSpeaking) return 1;
         return 0;
@@ -647,7 +658,7 @@ export const CallRoomPage: React.FC = () => {
     
     // If only current user, return as is
     return participants;
-  }, [unifiedParticipants, user?.uid]);
+  }, [unifiedParticipants, user?.uid, lastSpeakerId]);
   
   const visibleParticipants = sortedParticipants.slice(0, maxVisibleParticipants);
   const remainingParticipants = Math.max(0, totalParticipants - maxVisibleParticipants);
@@ -865,6 +876,21 @@ export const CallRoomPage: React.FC = () => {
               </div>
             )}
 
+            {/* Mobile Participants Gallery - Show all OTHER participants (excluding main focus and current user) */}
+            {totalParticipants > 1 && (
+              <div className="md:hidden flex items-center gap-3 pb-4 overflow-x-auto shrink-0">
+                {/* Show participants from index 1 onwards (excluding the main one at index 0) */}
+                {visibleParticipants.slice(1).filter(p => p.userId !== user?.uid).map((participant) => (
+                  <ParticipantVideo 
+                    key={participant.userId}
+                    participant={participant}
+                    currentUserId={user?.uid}
+                    size="small"
+                  />
+                ))}
+              </div>
+            )}
+
             {/* Hidden voice connection keeper - ensures audio elements stay reactive */}
             {isVoiceConnected && voiceCallCount > 0 && (
               <div style={{ display: 'none' }} aria-hidden="true">
@@ -895,57 +921,6 @@ export const CallRoomPage: React.FC = () => {
                   </svg>
                   {voiceError}
                 </div>
-              </div>
-            )}
-
-            {/* Mobile: Scrollable Participants List - Only when chat is closed */}
-            {totalParticipants > 1 && !isChatOpen && (
-              <div className="md:hidden shrink-0 max-h-48 overflow-y-auto space-y-3 pb-4"
-                style={{
-                  scrollbarWidth: 'thin',
-                  scrollbarColor: 'rgba(251, 251, 251, 0.7) transparent',
-                }}
-              >
-                {unifiedParticipants.slice(1).map((participant) => (
-                  <div
-                    key={participant.userId}
-                    className={`relative h-32 bg-(--color-container) rounded-xl flex items-center justify-center transition-all ${
-                      participant.isSpeaking ? 'border-2 border-green-500' : ''
-                    }`}
-                  >
-                    <div className={`relative ${
-                      participant.isSpeaking ? `animate-speaking-pulse-${participant.volumeLevel || 'low'}` : ''
-                    }`}>
-                      <img
-                        src={participant.photo || "/assets/profile-placeholder.jpg"}
-                        alt={participant.name || "Usuario"}
-                        className="w-24 h-24 rounded-full object-cover"
-                      />
-                    </div>
-                    
-                    {/* Voice indicator badge */}
-                    {participant.isInVoiceCall && (
-                      <div className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center">
-                        {participant.isMuted ? (
-                          <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-                            <line x1="4" y1="4" x2="16" y2="16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                          </svg>
-                        ) : (
-                          <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-                          </svg>
-                        )}
-                      </div>
-                    )}
-                    
-                    <div className="absolute bottom-2 left-2 px-3 py-1 bg-black/60 rounded-full">
-                      <span className="text-sm font-medium text-white">
-                        {truncateName(participant.name || "Usuario", 20)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
               </div>
             )}
           </div>
