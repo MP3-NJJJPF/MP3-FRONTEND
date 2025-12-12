@@ -48,20 +48,28 @@ export const HomePage: React.FC = () => {
         </div>
 
         {/* Footer */}
-        <footer className="h-fit bg-transparent">
-          <div className="flex gap-12 text-sm font-medium text-white">
+        <footer className="h-fit bg-transparent w-full px-4">
+          <div className="flex flex-col sm:flex-row gap-4 sm:gap-8 md:gap-12 text-sm font-medium text-white items-center justify-center">
               <Link
                 to="/about"
-                className="text-base transition-colors hover:text-gray-300 focus:outline-none"
+                className="text-sm sm:text-base transition-colors hover:text-gray-300 focus:outline-none"
               >
                 Sobre nosotros
               </Link>
               <Link
                 to="/sitemap"
-                className="text-base transition-colors hover:text-gray-300 focus:outline-none"
+                className="text-sm sm:text-base transition-colors hover:text-gray-300 focus:outline-none"
               >
                 Mapa del sitio
               </Link>
+              <a
+                href="https://drive.google.com/file/d/1H1XktS7Q4_tNRSTwYJkGsCyB_OoQEXNI/view?usp=sharing"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm sm:text-base transition-colors hover:text-gray-300 focus:outline-none"
+              >
+                Manual de usuario
+              </a>
             </div>
         </footer>
       </div>

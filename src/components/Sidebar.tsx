@@ -48,7 +48,7 @@ export const Sidebar: React.FC = () => {
   return (
     <>
       {/* Desktop & Tablet Sidebar - Left Side */}
-      <aside className="hidden md:flex md:flex-col md:w-20 md:px-2 md:py-5">
+      <aside className="hidden md:flex md:flex-col md:w-20 md:pl-2 md:py-5 shrink-0">
         <div className="flex flex-col items-center h-full py-5 px-2 bg-(--color-container) rounded-full">
           {/* Logo */}
           <Link to="/dashboard" className="mb-8">

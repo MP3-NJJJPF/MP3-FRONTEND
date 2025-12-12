@@ -43,6 +43,9 @@ export const CallRoomPage: React.FC = () => {
   const [messages, setMessages] = useState<{ userId: string; message: string; timestamp: string; isOwn: boolean; name?: string, photo?: string }[]>([]);
   const [isLeaveCallModalOpen, setIsLeaveCallModalOpen] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  
+  // Screen reader announcements
+  const [srAnnouncement, setSrAnnouncement] = useState('');
 
   // WebRTC voice call states
   const [isVoiceConnected, setIsVoiceConnected] = useState(false);
@@ -197,6 +200,7 @@ export const CallRoomPage: React.FC = () => {
         if (!isMounted) return;
 
         setIsVoiceConnected(true);
+        setSrAnnouncement('Conectado a la llamada de voz');
         
         // Add current user to voice participants
         setVoiceParticipants((prev) => {
@@ -218,7 +222,9 @@ export const CallRoomPage: React.FC = () => {
       } catch (error: any) {
         console.error('[CallRoom] Voice call error:', error);
         if (isMounted) {
-          setVoiceError(error.message || 'Error al conectar con la llamada de voz');
+          const errorMessage = error.message || 'Error al conectar con la llamada de voz';
+          setVoiceError(errorMessage);
+          setSrAnnouncement(`Error: ${errorMessage}`);
         }
       } finally {
         if (isMounted) {
@@ -310,6 +316,11 @@ export const CallRoomPage: React.FC = () => {
       console.log('[CallRoom] ✅ Setting participant name to:', displayName);
       console.log('[CallRoom] 📝 Name source:', data.name ? 'data.name' : data.userName ? 'data.userName' : 'fallback');
 
+      // Announce to screen readers
+      if (data.userId !== user?.uid) {
+        setSrAnnouncement(`${displayName} se ha unido a la llamada`);
+      }
+
       setVoiceParticipants((prev) => {
         const newMap = new Map(prev);
         newMap.set(data.userId, {
@@ -330,6 +341,12 @@ export const CallRoomPage: React.FC = () => {
       if (!data || !data.userId) {
         console.error('[CallRoom] Invalid user left data:', data);
         return;
+      }
+
+      // Announce to screen readers
+      const participant = voiceParticipants.get(data.userId);
+      if (participant && data.userId !== user?.uid) {
+        setSrAnnouncement(`${participant.name} ha salido de la llamada`);
       }
 
       setVoiceParticipants((prev) => {
@@ -424,9 +441,15 @@ export const CallRoomPage: React.FC = () => {
         const newMap = new Map(prev);
         const participant = newMap.get(data.userId);
         if (participant) {
+          const wasNotSpeaking = !participant.isSpeaking;
           participant.isSpeaking = data.isSpeaking;
           participant.volumeLevel = data.volumeLevel;
           newMap.set(data.userId, { ...participant });
+          
+          // Announce when someone starts speaking (not when they stop)
+          if (wasNotSpeaking && data.isSpeaking && data.userId !== user?.uid) {
+            setSrAnnouncement(`${participant.name} está hablando`);
+          }
         }
         return newMap;
       });
@@ -510,6 +533,11 @@ export const CallRoomPage: React.FC = () => {
       if (!isChatOpen && msg.userId !== user?.uid) {
         setUnreadMessages(prev => prev + 1);
       }
+      
+      // Announce new messages from others
+      if (msg.userId !== user?.uid) {
+        setSrAnnouncement(`Nuevo mensaje de ${msg.name}: ${msg.message}`);
+      }
     };
 
     socket.on("chat:message", handler);
@@ -589,10 +617,39 @@ export const CallRoomPage: React.FC = () => {
     }
   };
 
-  // Calculate participants to display
+  // Calculate participants to display with priority logic
   const totalParticipants = unifiedParticipants.length;
   const maxVisibleParticipants = 6;
-  const visibleParticipants = unifiedParticipants.slice(0, maxVisibleParticipants);
+  
+  // Prioritize participants: 
+  // 1. Never show current user as main focus if there are others
+  // 2. Show who's speaking first
+  // 3. Then show others
+  const sortedParticipants = useMemo(() => {
+    const participants = [...unifiedParticipants];
+    
+    // If there are other participants besides the current user, filter out current user for sorting
+    const otherParticipants = participants.filter(p => p.userId !== user?.uid);
+    const currentUser = participants.find(p => p.userId === user?.uid);
+    
+    if (otherParticipants.length > 0) {
+      // Sort others: speaking first, then others
+      otherParticipants.sort((a, b) => {
+        // Speaking participants first
+        if (a.isSpeaking && !b.isSpeaking) return -1;
+        if (!a.isSpeaking && b.isSpeaking) return 1;
+        return 0;
+      });
+      
+      // Put current user at the end
+      return currentUser ? [...otherParticipants, currentUser] : otherParticipants;
+    }
+    
+    // If only current user, return as is
+    return participants;
+  }, [unifiedParticipants, user?.uid]);
+  
+  const visibleParticipants = sortedParticipants.slice(0, maxVisibleParticipants);
   const remainingParticipants = Math.max(0, totalParticipants - maxVisibleParticipants);
   const showMoreButton = totalParticipants > 5;
   
@@ -614,6 +671,16 @@ export const CallRoomPage: React.FC = () => {
 
   return (
     <div className="h-screen bg-(--color-background) flex flex-row overflow-hidden">
+      {/* Screen reader announcements for accessibility */}
+      <div 
+        role="status" 
+        aria-live="polite" 
+        aria-atomic="true" 
+        className="sr-only"
+      >
+        {srAnnouncement}
+      </div>
+      
       {/* 🔊 CRITICAL: Audio elements MUST always be in DOM for audio to work */}
       {/* These are separate from visual VoiceParticipant components */}
       <div style={{ display: 'none' }} aria-hidden="true">
