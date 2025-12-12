@@ -92,7 +92,7 @@ export const ParticipantVideo: React.FC<ParticipantVideoProps> = ({
             <img
               src={participant.photo || "/assets/profile-placeholder.jpg"}
               alt={participant.name || "Usuario"}
-              className={`${isSmall ? 'w-20 h-20' : 'w-48 h-48 md:w-64 md:h-64'} rounded-full object-cover`}
+              className={`${isSmall ? 'w-16 h-16' : 'w-48 h-48 md:w-64 md:h-64'} rounded-full object-cover`}
             />
           </div>
         </div>

@@ -814,12 +814,12 @@ export const CallRoomPage: React.FC = () => {
         </header>
 
         {/* Video Area - Different layouts for mobile/tablet/desktop */}
-        <div className="flex-1 flex flex-col lg:flex-row gap-4 px-4 md:px-6 overflow-hidden min-h-0">
+        <div className="flex-1 flex flex-col lg:flex-row gap-4 px-4 md:px-6 overflow-y-auto overflow-x-hidden min-h-0">
           {/* Main Video + Participants */}
-          <div className={`flex flex-col gap-4 transition-all min-h-0 ${isChatOpen ? 'hidden md:flex flex-1' : 'flex-1'}`}>
+          <div className={`flex flex-col gap-4 transition-all ${isChatOpen ? 'hidden md:flex flex-1' : 'flex-1'}`}>
             {/* Main Video Feed - Only show if there are participants */}
             {totalParticipants > 0 && (
-              <div className="flex-1 relative rounded-2xl overflow-hidden min-h-0 flex items-center justify-center">
+              <div className="relative rounded-2xl overflow-hidden flex items-center justify-center h-[60vh] md:h-[50vh] lg:flex-1 shrink-0">
                 <ParticipantVideo 
                   participant={visibleParticipants[0]}
                   currentUserId={user?.uid}
@@ -828,11 +828,11 @@ export const CallRoomPage: React.FC = () => {
 
                 {/* Current User in Picture-in-Picture (Mobile Only) */}
                 {user && visibleParticipants[0]?.userId !== user.uid && (
-                  <div className="md:hidden absolute bottom-4 right-4">
+                  <div className="md:hidden absolute bottom-2 right-2 w-32 h-28 shrink-0 [&>*]:!w-full [&>*]:!h-full">
                     <ParticipantVideo 
                       participant={{
                         userId: user.uid,
-                        name: user.displayName || 'Yo',
+                        name: 'Yo',
                         photo: user.photoURL || undefined,
                         isMuted: isMicMuted,
                         isSpeaking: false,
@@ -876,9 +876,9 @@ export const CallRoomPage: React.FC = () => {
               </div>
             )}
 
-            {/* Mobile Participants Gallery - Show all OTHER participants (excluding main focus and current user) */}
+            {/* Mobile Participants Gallery - Grid layout with max 2 per row */}
             {totalParticipants > 1 && (
-              <div className="md:hidden flex items-center gap-3 pb-4 overflow-x-auto shrink-0">
+              <div className="md:hidden grid grid-cols-2 gap-3 pb-4 shrink-0 [&>*]:!w-full">
                 {/* Show participants from index 1 onwards (excluding the main one at index 0) */}
                 {visibleParticipants.slice(1).filter(p => p.userId !== user?.uid).map((participant) => (
                   <ParticipantVideo 
