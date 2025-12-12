@@ -14,6 +14,7 @@ export const DashboardPage: React.FC = () => {
   const [meetingCode, setMeetingCode] = useState('');
   const { user } = useAuthStore();
   const [loading, setLoading] = useState(false);
+  const [srAnnouncement, setSrAnnouncement] = useState('');
   const navigate = useNavigate();
 
   // Get first two words from displayName
@@ -36,20 +37,26 @@ export const DashboardPage: React.FC = () => {
   const handleCreateMeeting = async () => {
     try {
       setLoading(true);
+      setSrAnnouncement('Creando reunión...');
       const res: any = await apiClient.post("/api/v1/meetings/create", { "hostId": user?.uid });
 
       if (!res.ok) {
-        alert("Error al crear la reunión");
+        const errorMsg = "Error al crear la reunión";
+        alert(errorMsg);
+        setSrAnnouncement(errorMsg);
         return;
       }
 
       console.log("Meeting created:", res.meetingId);
+      setSrAnnouncement(`Reunión creada exitosamente. Código: ${res.meetingId}`);
 
       navigate(`/call/${res.meetingId}`);
 
     } catch (error) {
       console.error("Error creating meeting:", error);
-      alert("Hubo un problema creando la reunión.");
+      const errorMsg = "Hubo un problema creando la reunión.";
+      alert(errorMsg);
+      setSrAnnouncement(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -67,25 +74,34 @@ export const DashboardPage: React.FC = () => {
   const handleJoinMeeting = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!meetingCode.trim()) return;
+    if (!meetingCode.trim()) {
+      setSrAnnouncement('Por favor ingrese un código de reunión');
+      return;
+    }
 
     try {
       setLoading(true);
+      setSrAnnouncement('Uniéndose a la reunión...');
 
       const res: any = await apiClient.get(`/api/v1/meetings/${meetingCode}`);
 
       if (!res.ok) {
-        alert("La reunión no existe");
+        const errorMsg = "La reunión no existe";
+        alert(errorMsg);
+        setSrAnnouncement(errorMsg);
         return;
       }
 
       console.log("Joining meeting:", meetingCode);
+      setSrAnnouncement(`Uniéndose a la reunión ${meetingCode}`);
 
       navigate(`/call/${meetingCode}`);
 
     } catch (error) {
       console.error("Error joining meeting:", error);
-      alert("Hubo un error al intentar unirse.");
+      const errorMsg = "Hubo un error al intentar unirse.";
+      alert(errorMsg);
+      setSrAnnouncement(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -93,6 +109,16 @@ export const DashboardPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-(--color-background) flex flex-row">
+      {/* Screen reader announcements */}
+      <div 
+        role="status" 
+        aria-live="polite" 
+        aria-atomic="true" 
+        className="sr-only"
+      >
+        {srAnnouncement}
+      </div>
+      
       {/* Sidebar */}
       <Sidebar />
 
@@ -152,7 +178,7 @@ export const DashboardPage: React.FC = () => {
               Unirse a una Reunión
             </h2>
             <p className="text-gray-400 mb-6 leading-relaxed">
-              Usa un código o enlace para entrar a una reunión.
+              Usa un código para entrar a una reunión.
             </p>
 
             {/* Form */}
@@ -162,7 +188,7 @@ export const DashboardPage: React.FC = () => {
                 placeholder="Ingresa Código"
                 value={meetingCode}
                 onChange={(e) => setMeetingCode(e.target.value)}
-                className="flex-1 h-12 px-4 bg-(--color-input-bg) text-white rounded-xl border border-(--color-border) focus:outline-none focus:border-(--color-primary) transition-colors"
+                className="flex-1 min-w-0 h-12 px-4 bg-(--color-input-bg) text-white rounded-xl border border-(--color-border) focus:outline-none focus:border-(--color-primary) transition-colors"
               />
               <button
                 type="submit"

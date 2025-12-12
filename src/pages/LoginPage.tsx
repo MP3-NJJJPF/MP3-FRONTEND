@@ -26,6 +26,7 @@ export const LoginPage: React.FC = () => {
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [srAnnouncement, setSrAnnouncement] = useState('');
 
   // Show success message from registration
   useEffect(() => {
@@ -61,10 +62,13 @@ export const LoginPage: React.FC = () => {
     // Reset errors
     setEmailError('');
     setPasswordError('');
+    setSrAnnouncement('');
 
     // Validate email
     if (!email) {
-      setEmailError('Este campo es obligatorio');
+      const errorMsg = 'Este campo es obligatorio';
+      setEmailError(errorMsg);
+      setSrAnnouncement(`Error en correo: ${errorMsg}`);
       return;
     }
 
@@ -72,35 +76,53 @@ export const LoginPage: React.FC = () => {
     const passwordValidation = validatePassword(password);
     if (passwordValidation) {
       setPasswordError(passwordValidation);
+      setSrAnnouncement(`Error en contraseña: ${passwordValidation}`);
       return;
     }
 
     try {
+      setSrAnnouncement('Iniciando sesión...');
       await loginWithEmail(email, password);
+      setSrAnnouncement('Inicio de sesión exitoso');
     } catch (err: any) {
       // Error is handled by store
       console.error('Login error:', err);
+      setSrAnnouncement(`Error: ${err.message || 'Error al iniciar sesión'}`);
     }
   };
 
   const handleGoogleLogin = async () => {
     try {
+      setSrAnnouncement('Iniciando sesión con Google...');
       await loginWithGoogle();
     } catch (err: any) {
       console.error('Google login error:', err);
+      setSrAnnouncement(`Error al iniciar sesión con Google: ${err.message}`);
     }
   };
 
   const handleGithubLogin = async () => {
     try {
+      setSrAnnouncement('Iniciando sesión con GitHub...');
       await loginWithGithub();
     } catch (err: any) {
       console.error('GitHub login error:', err);
+      setSrAnnouncement(`Error al iniciar sesión con GitHub: ${err.message}`);
     }
   };
 
   return (
     <div className="relative min-h-screen w-full overflow-hidden bg-(--color-background)">
+      {/* Screen reader announcements */}
+      <div 
+        role="alert" 
+        aria-live="assertive" 
+        aria-atomic="true" 
+        className="sr-only"
+      >
+        {srAnnouncement}
+      </div>
+      
       {/* Mosaic Background */}
       <MosaicBackground />
 
